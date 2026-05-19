@@ -45,3 +45,18 @@ export const storage = {
 export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 }
+
+export function toDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function getTodayKey() {
+  return toDateKey(new Date())
+}
+
+export function getTomorrowKey() {
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return toDateKey(tomorrow)
+}
+

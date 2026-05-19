@@ -35,13 +35,14 @@ function formatHour(h) {
 function AddEventSheet({ dateKey, onClose, onAdd }) {
   const [name,  setName]  = useState('')
   const [hour,  setHour]  = useState(8)
+  const [duration, setDuration] = useState(1)
   const [color, setColor] = useState('blue')
 
   function submit(e) {
     e.preventDefault()
     const n = name.trim()
     if (!n) return
-    onAdd({ id: uid(), dateKey, name: n, hour: Number(hour), color })
+    onAdd({ id: uid(), dateKey, name: n, hour: Number(hour), duration: Number(duration), color })
     onClose()
   }
 
@@ -63,19 +64,39 @@ function AddEventSheet({ dateKey, onClose, onAdd }) {
             id="event-name-input"
           />
 
-          <select
-            className="sheet-input"
-            value={hour}
-            onChange={e => setHour(e.target.value)}
-            style={{ marginTop: 10 }}
-            id="event-hour-select"
-          >
-            {HOURS.map(h => (
-              <option key={h} value={h}>{formatHour(h)}</option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Start Time</label>
+              <select
+                className="sheet-input"
+                value={hour}
+                onChange={e => setHour(e.target.value)}
+                id="event-hour-select"
+              >
+                {HOURS.map(h => (
+                  <option key={h} value={h}>{formatHour(h)}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Duration</label>
+              <select
+                className="sheet-input"
+                value={duration}
+                onChange={e => setDuration(e.target.value)}
+                id="event-duration-select"
+              >
+                <option value={1}>1 hour</option>
+                <option value={2}>2 hours</option>
+                <option value={3}>3 hours</option>
+                <option value={4}>4 hours</option>
+                <option value={5}>5 hours</option>
+              </select>
+            </div>
+          </div>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             {COLOR_OPTIONS.map(c => (
               <button
                 key={c.value}
@@ -195,7 +216,11 @@ export default function CalendarView() {
           const k   = keyForCell(cell)
           const sel = k === selectedKey
           const tdy = k === todayKey
-          const hasEv = k && events.some(e => e.dateKey === k)
+          
+          const dayColors = k 
+            ? Array.from(new Set(events.filter(e => e.dateKey === k).map(e => e.color || 'blue')))
+            : []
+          
           return (
             <div
               key={i}
@@ -204,12 +229,18 @@ export default function CalendarView() {
                 !cell.current ? 'other-month' : '',
                 tdy ? 'today' : '',
                 sel ? 'selected' : '',
-                hasEv ? 'has-events' : '',
               ].join(' ')}
               onClick={() => { if (cell.current && k) setSelectedKey(k) }}
               id={k ? `cal-day-${k}` : undefined}
             >
               {cell.day}
+              {k && dayColors.length > 0 && (
+                <div className="cal-day-dots">
+                  {dayColors.map(color => (
+                    <span key={color} className={`cal-dot cal-dot--${color}`} />
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
@@ -242,17 +273,34 @@ export default function CalendarView() {
                 <div className="timeline-slot__vline" />
               </div>
               <div className="timeline-slot__content">
-                {slotEvents.map(ev => (
-                  <div key={ev.id} className={`event-block ${ev.color !== 'blue' ? ev.color : ''}`}>
-                    <div>
-                      <div className="event-block__name">{ev.name}</div>
-                      <div className="event-block__time">{formatHour(h)}</div>
+                {slotEvents.map(ev => {
+                  const duration = ev.duration || 1
+                  const endHour = ev.hour + duration
+                  const timeLabel = `${formatHour(ev.hour)} – ${formatHour(endHour >= 24 ? endHour - 24 : endHour)}`
+                  return (
+                    <div 
+                      key={ev.id} 
+                      className={`event-block ${ev.color !== 'blue' ? ev.color : ''}`}
+                      style={{ 
+                        minHeight: `${duration * 46}px`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        alignItems: 'stretch'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+                        <div style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
+                          <div className="event-block__name">{ev.name}</div>
+                          <div className="event-block__time">{timeLabel}</div>
+                        </div>
+                        <button className="event-delete" onClick={() => deleteEvent(ev.id)} aria-label="Delete event" style={{ marginTop: -2 }}>
+                          <Icons.X size={12} />
+                        </button>
+                      </div>
                     </div>
-                    <button className="event-delete" onClick={() => deleteEvent(ev.id)} aria-label="Delete event">
-                      <Icons.X />
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )

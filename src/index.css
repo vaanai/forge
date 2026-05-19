@@ -11,6 +11,8 @@
   --bg-surface:     #faf7f2;
   --bg-raised:      #ffffff;
   --bg-overlay:     rgba(244, 239, 230, 0.92);
+  --bg-topbar:      rgba(244, 239, 230, 0.82);
+  --bg-bottomnav:   rgba(250, 247, 242, 0.85);
 
   --border:         rgba(30, 25, 20, 0.10);
   --border-strong:  rgba(30, 25, 20, 0.18);
@@ -51,6 +53,8 @@
   --bg-surface:     #19191f;
   --bg-raised:      #22222c;
   --bg-overlay:     rgba(17, 17, 24, 0.94);
+  --bg-topbar:      rgba(17, 17, 24, 0.80);
+  --bg-bottomnav:   rgba(25, 25, 31, 0.82);
 
   --border:         rgba(255, 255, 255, 0.07);
   --border-strong:  rgba(255, 255, 255, 0.14);
@@ -117,7 +121,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px 12px;
-  background: var(--bg-base);
+  background: var(--bg-topbar);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -152,7 +156,7 @@ body {
   width: 100%;
   max-width: 480px;
   height: var(--nav-height);
-  background: var(--bg-surface);
+  background: var(--bg-bottomnav);
   border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -853,3 +857,348 @@ body {
 button { -webkit-tap-highlight-color: transparent; }
 
 ::-webkit-scrollbar { width: 0; background: transparent; }
+
+/* ========================================================
+   UPGRADED FEATURES & TOUCH-OPTIMIZED ZEN UX
+   ======================================================== */
+
+/* --- Task Actions & Dynamic Mobile Display --- */
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.task-action-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, transform 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Mobile-first: touch targets are subtly visible and respond to active press */
+.task-action-icon-btn {
+  opacity: 0.65;
+}
+
+.task-action-icon-btn:active {
+  transform: scale(0.88);
+  opacity: 1;
+}
+
+.task-action-icon-btn.delete-btn:active {
+  background: rgba(192, 57, 43, 0.12);
+  color: var(--danger);
+}
+
+.task-action-icon-btn.defer-btn:active {
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue);
+}
+
+.task-action-icon-btn.route-btn:active {
+  background: var(--accent-gold-bg);
+  color: var(--accent-gold);
+}
+
+/* Desktop Hover optimizations: Only apply hide-until-hover if system supports hover hover */
+@media (hover: hover) {
+  .task-action-icon-btn {
+    opacity: 0;
+  }
+  .task-item:hover .task-action-icon-btn {
+    opacity: 0.60;
+  }
+  .task-action-icon-btn:hover {
+    opacity: 1 !important;
+  }
+  .task-action-icon-btn.delete-btn:hover {
+    background: rgba(192, 57, 43, 0.10);
+    color: var(--danger);
+  }
+  .task-action-icon-btn.defer-btn:hover {
+    background: var(--accent-blue-bg);
+    color: var(--accent-blue);
+  }
+  .task-action-icon-btn.route-btn:hover {
+    background: var(--accent-gold-bg);
+    color: var(--accent-gold);
+  }
+}
+
+/* --- Forge Progress Heat Meter --- */
+.forge-meter-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin: 14px 20px 6px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.forge-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.forge-meter-status {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.forge-meter-status.ignited {
+  color: var(--accent-gold);
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.forge-meter-value {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.forge-meter-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+
+.forge-meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--accent-gold) 0%, #e67e22 55%, #e74c3c 100%);
+  width: 0%;
+  transition: width 0.65s cubic-bezier(0.25, 1.25, 0.5, 1.1);
+  box-shadow: 0 0 6px rgba(201, 154, 82, 0.25);
+}
+
+.forge-meter-fill.ignited {
+  background: linear-gradient(90deg, var(--accent-gold) 0%, #e67e22 50%, #f1c40f 100%);
+  box-shadow: 0 0 12px rgba(241, 196, 15, 0.45);
+}
+
+.forge-meter-celebration {
+  font-size: 11.5px;
+  color: var(--accent-gold);
+  margin-top: 8px;
+  text-align: center;
+  font-weight: 500;
+  animation: fadeIn 0.4s ease forwards;
+}
+
+/* --- Sparks project routing bottom-sheet --- */
+.sheet-spark-preview {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-base);
+  border-left: 2px solid var(--accent-gold);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sheet-projects-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  -webkit-overflow-scrolling: touch;
+}
+
+.sheet-project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.sheet-project-row:last-child {
+  border-bottom: none;
+}
+
+.sheet-project-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-project-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sheet-project-action-btn {
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--accent-blue);
+  background: var(--accent-blue);
+  color: #fff;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sheet-project-action-btn:active {
+  transform: scale(0.94);
+  opacity: 0.85;
+}
+
+.sheet-project-action-btn.secondary {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+.sheet-project-action-btn.secondary:active {
+  background: var(--border);
+}
+
+.sheet-btn.secondary-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.sheet-btn.secondary-btn:active {
+  background: var(--border);
+}
+
+/* --- Today's Agenda timeline feed --- */
+.agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.agenda-item:last-child {
+  border-bottom: none;
+}
+
+.agenda-time {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  width: 44px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.agenda-indicator {
+  width: 3px;
+  height: 15px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.agenda-indicator.blue { background: var(--accent-blue); }
+.agenda-indicator.gold { background: var(--accent-gold); }
+.agenda-indicator.obsidian { background: var(--accent-obsidian); }
+
+.agenda-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Multi-colored Calendar Cell indicator dots --- */
+.cal-day-dots {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 2.5px;
+}
+
+.cal-dot {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+}
+
+.cal-dot--blue { background: var(--accent-blue); }
+.cal-dot--gold { background: var(--accent-gold); }
+.cal-dot--obsidian { background: var(--accent-obsidian); }
+
+.cal-day.selected .cal-dot {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.cal-day.selected .cal-day-dots {
+  bottom: 3.5px;
+}
+
+/* --- Tactile Active Press Feedback --- */
+.nav-item:active {
+  transform: scale(0.93);
+}
+.nav-item:active svg {
+  transform: scale(0.85);
+}
+.icon-btn:active {
+  transform: scale(0.88);
+}
+.add-btn:active {
+  transform: scale(0.9);
+}
+.project-card__header:active {
+  background: var(--border);
+}
+.project-tab:active {
+  transform: scale(0.96);
+}
+
+/* Prevent sticky hover styles on mobile browsers */
+@media (hover: hover) {
+  .nav-item:hover { color: var(--accent-blue); }
+  .icon-btn:hover { background: var(--bg-raised); color: var(--text-primary); }
+  .new-project-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--accent-blue-bg); }
+  .project-tab:hover { color: var(--text-primary); }
+  .project-delete-btn:hover { border-color: var(--danger); color: var(--danger); background: rgba(192, 57, 43, 0.05); }
+}
+
