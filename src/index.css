@@ -1202,3 +1202,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .project-delete-btn:hover { border-color: var(--danger); color: var(--danger); background: rgba(192, 57, 43, 0.05); }
 }
 
+.hidden {
+  display: none !important;
+}
+

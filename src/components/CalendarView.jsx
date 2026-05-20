@@ -129,22 +129,19 @@ function AddEventSheet({ dateKey, onClose, onAdd }) {
 }
 
 // ── Calendar View ──────────────────────────────────────────
-export default function CalendarView() {
+export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, todayKey }) {
   const today = new Date()
   const [year,  setYear]  = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
-  const [selectedKey, setSelectedKey] = useState(toDateKey(today))
-  const [events, setEvents] = useState(() => storage.getEvents())
+  const [selectedKey, setSelectedKey] = useState(todayKey || toDateKey(today))
   const [showSheet, setShowSheet] = useState(false)
 
-  useEffect(() => { storage.saveEvents(events) }, [events])
-
   function addEvent(ev) {
-    setEvents(prev => [...prev, ev])
+    onAddEvent(ev)
   }
 
   function deleteEvent(id) {
-    setEvents(prev => prev.filter(e => e.id !== id))
+    onDeleteEvent(id)
   }
 
   function prevMonth() {
@@ -161,7 +158,6 @@ export default function CalendarView() {
   const totalDays  = daysInMonth(year, month)
   const firstDay   = firstDayOfMonth(year, month)
   const prevTotal  = daysInMonth(year, month - 1 < 0 ? 11 : month - 1)
-  const todayKey   = toDateKey(today)
 
   const cells = []
   for (let i = firstDay - 1; i >= 0; i--) {
@@ -265,6 +261,11 @@ export default function CalendarView() {
           const slotEvents = dayEvents.filter(e => e.hour === h)
           const isActive   = eventHours.has(h) || slotEvents.length > 0
           if (h < 6 && !isActive) return null // hide early AM if empty
+
+          // Collapse slot if it is spanned by an ongoing multi-hour event
+          const isSpanned = dayEvents.some(e => e.hour < h && h < e.hour + (e.duration || 1))
+          if (isSpanned && slotEvents.length === 0) return null
+
           return (
             <div key={h} className="timeline-slot">
               <div className="timeline-slot__time">{formatHour(h)}</div>

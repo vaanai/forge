@@ -47,7 +47,7 @@ function ProjectTaskList({ project, onUpdate }) {
       ) : (
         <div style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
           {(project.tasks || []).map(task => (
-            <div key={task.id} className={`task-item ${task.done ? 'completed' : ''}`} style={{ background: 'var(--bg-base)' }}>
+            <div key={task.id} className={`task-item ${task.done ? 'completed' : ''}`}>
               <button
                 className={`task-check ${task.done ? 'checked' : ''}`}
                 onClick={() => toggleTask(task.id)}
@@ -56,8 +56,12 @@ function ProjectTaskList({ project, onUpdate }) {
                 <Icons.Check />
               </button>
               <span className="task-text">{task.text}</span>
-              <button className="task-delete" onClick={() => deleteTask(task.id)} aria-label="Delete">
-                <Icons.X />
+              <button 
+                className="task-action-icon-btn delete-btn" 
+                onClick={() => deleteTask(task.id)} 
+                aria-label="Delete task"
+              >
+                <Icons.X size={13} />
               </button>
             </div>
           ))}
@@ -73,6 +77,10 @@ function ProjectCard({ project, onUpdate, onDelete }) {
   const [tab, setTab]       = useState('tasks')
   const [scratch, setScratch] = useState(project.scratchpad || '')
 
+  useEffect(() => {
+    setScratch(project.scratchpad || '')
+  }, [project.scratchpad])
+
   // save scratchpad on blur
   function saveScratch() {
     onUpdate({ ...project, scratchpad: scratch })
@@ -86,8 +94,10 @@ function ProjectCard({ project, onUpdate, onDelete }) {
       <div
         className="project-card__header"
         onClick={() => setOpen(o => !o)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } }}
         role="button"
         aria-expanded={open}
+        tabIndex="0"
         id={`project-header-${project.id}`}
       >
         <div>
@@ -189,22 +199,19 @@ function NewProjectSheet({ onClose, onCreate }) {
 }
 
 // ── Projects View ──────────────────────────────────────────
-export default function ProjectsView() {
-  const [projects, setProjects] = useState(() => storage.getProjects())
+export default function ProjectsView({ projects = [], onUpdateProjects }) {
   const [showSheet, setShowSheet] = useState(false)
 
-  useEffect(() => { storage.saveProjects(projects) }, [projects])
-
   function createProject(p) {
-    setProjects(prev => [p, ...prev])
+    onUpdateProjects([p, ...projects])
   }
 
   function updateProject(updated) {
-    setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))
+    onUpdateProjects(projects.map(p => p.id === updated.id ? updated : p))
   }
 
   function deleteProject(id) {
-    setProjects(prev => prev.filter(p => p.id !== id))
+    onUpdateProjects(projects.filter(p => p.id !== id))
   }
 
   return (

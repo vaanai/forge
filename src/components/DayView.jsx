@@ -1,13 +1,8 @@
-import { useState, useRef, useEffect } from 'react'
-import { storage, uid, getTodayKey, getTomorrowKey } from '../utils/storage.js'
+// src/components/DayView.jsx
+// Main daily dashboard including tasks list, customizable task reminders, agenda, sparks, and configurable Daily Rituals (habits) carousel.
+import { useState, useRef } from 'react'
+import { uid, getTomorrowKey } from '../utils/storage.js'
 import { Icons } from './Icons.jsx'
-
-// ── Helpers ────────────────────────────────────────────────
-function formatHour(h) {
-  if (h === 0)  return '12 AM'
-  if (h === 12) return '12 PM'
-  return h < 12 ? `${h} AM` : `${h-12} PM`
-}
 
 // ── Task Item ──────────────────────────────────────────────
 function TaskItem({ task, onToggle, onDelete, onDefer }) {
@@ -20,7 +15,14 @@ function TaskItem({ task, onToggle, onDelete, onDefer }) {
       >
         <Icons.Check />
       </button>
-      <span className="task-text">{task.text}</span>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <span className="task-text">{task.text}</span>
+        {task.reminderTime && (
+          <span style={{ fontSize: '9px', color: 'var(--accent-gold)', display: 'inline-flex', alignItems: 'center', gap: '3px', marginTop: '2px', fontWeight: 600 }}>
+            🔔 Reminder set for {task.reminderTime}
+          </span>
+        )}
+      </div>
       <div className="task-actions">
         {task.deferCount > 0 && (
           <span className="task-meta" title="Times deferred">+{task.deferCount}</span>
@@ -132,22 +134,127 @@ function FileSparkSheet({ spark, projects, onClose, onFile }) {
   )
 }
 
-// ── The Day View ───────────────────────────────────────────
-export default function DayView() {
-  const [tasks, setTasks]   = useState(() => storage.getTasks())
-  const [sparks, setSparks] = useState(() => storage.getSparks())
-  const [projects, setProjects] = useState(() => storage.getProjects())
-  const [events, setEvents] = useState(() => storage.getEvents())
-  const [routingSpark, setRoutingSpark] = useState(null)
+// ── New Ritual Bottom Sheet ────────────────────────────────
+function NewRitualSheet({ onClose, onCreate }) {
+  const [name, setName] = useState('')
+  const [time, setTime] = useState('')
+  const [days, setDays] = useState([1, 2, 3, 4, 5]) // Mon-Fri default
   
-  const [input, setInput]   = useState('')
+  const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+  function toggleDay(dayIdx) {
+    setDays(prev => 
+      prev.includes(dayIdx) ? prev.filter(d => d !== dayIdx) : [...prev, dayIdx]
+    )
+  }
+
+  function submit(e) {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed || days.length === 0) return
+    onCreate({
+      id: 'rit_' + uid(),
+      name: trimmed,
+      days: days.sort(),
+      reminderTime: time || null
+    })
+    onClose()
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={e => e.stopPropagation()}>
+        <div className="sheet__handle" />
+        <h2 className="sheet__title">Add Daily Ritual</h2>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: 14 }}>Configure habits that automatically reset daily.</p>
+        
+        <form onSubmit={submit}>
+          <input
+            className="sheet-input"
+            placeholder="Ritual name (e.g. Morning Meds, Drink Water)"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            autoFocus
+            required
+          />
+
+          <div style={{ marginTop: 14 }}>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>Active Days</label>
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {DOW_LABELS.map((label, idx) => {
+                const active = days.includes(idx)
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => toggleDay(idx)}
+                    style={{
+                      flex: '1 0 40px',
+                      padding: '8px 0',
+                      borderRadius: 'var(--radius-sm)',
+                      border: active ? '1.5px solid var(--accent-gold)' : '1px solid var(--border)',
+                      background: active ? 'var(--accent-gold-bg)' : 'var(--bg-base)',
+                      color: active ? 'var(--accent-gold)' : 'var(--text-secondary)',
+                      font: '600 11px var(--font-sans)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Optional Notification Alert</label>
+            <input
+              type="time"
+              className="sheet-input"
+              value={time}
+              onChange={e => setTime(e.target.value)}
+            />
+          </div>
+
+          <button className="sheet-btn" type="submit" style={{ marginTop: 18, background: 'var(--accent-gold)' }}>
+            Schedule Ritual
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Helpers ────────────────────────────────────────────────
+function formatHour(h) {
+  if (h === 0)  return '12 AM'
+  if (h === 12) return '12 PM'
+  return h < 12 ? `${h} AM` : `${h-12} PM`
+}
+
+// ── The Day View ───────────────────────────────────────────
+export default function DayView({ 
+  tasks = [], 
+  setTasks, 
+  sparks = [], 
+  setSparks, 
+  projects = [], 
+  setProjects, 
+  events = [], 
+  rituals = [], 
+  setRituals, 
+  ritualLog = {}, 
+  setRitualLog, 
+  todayKey 
+}) {
+  const [routingSpark, setRoutingSpark] = useState(null)
+  const [showRitualSheet, setShowRitualSheet] = useState(false)
+  
+  const [input, setInput] = useState('')
   const [sparkInput, setSparkInput] = useState('')
+  const [reminderTime, setReminderTime] = useState('')
+  const [showReminderPicker, setShowReminderPicker] = useState(false)
   const inputRef = useRef(null)
-
-  useEffect(() => { storage.saveTasks(tasks) }, [tasks])
-  useEffect(() => { storage.saveSparks(sparks) }, [sparks])
-
-  const todayKey = getTodayKey()
 
   // Filter tasks:
   // - Show completed tasks
@@ -155,23 +262,43 @@ export default function DayView() {
   const activeTasks    = tasks.filter(t => !t.done && (!t.deferredUntil || t.deferredUntil <= todayKey))
   const completedTasks = tasks.filter(t => t.done)
 
-  // Calculate Forge progress percentage
+  // Filter active rituals for today
+  const dayOfWeek = new Date().getDay() // 0 = Sun, 1 = Mon ...
+  const activeRituals = rituals.filter(r => r.days.includes(dayOfWeek))
+
+  // Calculate Forge progress percentage (including active rituals for today)
   const todayTasks = tasks.filter(t => t.done || !t.deferredUntil || t.deferredUntil <= todayKey)
-  const totalToday = todayTasks.length
-  const completedToday = todayTasks.filter(t => t.done).length
-  const progressPercent = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0
+  const totalTodayItems = todayTasks.length + activeRituals.length
+  
+  const completedTodayTasks = todayTasks.filter(t => t.done).length
+  const completedTodayRituals = activeRituals.filter(r => ritualLog[todayKey]?.[r.id]).length
+  const completedTodayItems = completedTodayTasks + completedTodayRituals
+  
+  const progressPercent = totalTodayItems > 0 ? Math.round((completedTodayItems / totalTodayItems) * 100) : 0
 
   // Filter today's events for the agenda feed
   const todayEvents = events
     .filter(e => e.dateKey === todayKey)
     .sort((a, b) => a.hour - b.hour)
 
+  // Task submit
   function addTask(e) {
     e.preventDefault()
     const text = input.trim()
     if (!text) return
-    setTasks(prev => [{ id: uid(), text, done: false, deferCount: 0 }, ...prev])
+    
+    const newTask = {
+      id: uid(),
+      text,
+      done: false,
+      deferCount: 0,
+      reminderTime: reminderTime || null
+    }
+
+    setTasks(prev => [newTask, ...prev])
     setInput('')
+    setReminderTime('')
+    setShowReminderPicker(false)
   }
 
   function addSpark(e) {
@@ -218,9 +345,7 @@ export default function DayView() {
   function handleFileSpark(projectId, type) {
     if (!routingSpark) return
 
-    // 1. Get active projects
-    const allProjects = storage.getProjects()
-    const updatedProjects = allProjects.map(proj => {
+    const updatedProjects = projects.map(proj => {
       if (proj.id === projectId) {
         if (type === 'task') {
           return {
@@ -239,15 +364,29 @@ export default function DayView() {
       return proj
     })
 
-    // 2. Save projects to storage
-    storage.saveProjects(updatedProjects)
     setProjects(updatedProjects)
-
-    // 3. Delete spark
     setSparks(prev => prev.filter(s => s.id !== routingSpark.id))
-
-    // 4. Close routing modal
     setRoutingSpark(null)
+  }
+
+  function toggleRitual(id) {
+    const todayLog = ritualLog[todayKey] || {}
+    const updatedLog = {
+      ...ritualLog,
+      [todayKey]: {
+        ...todayLog,
+        [id]: !todayLog[id]
+      }
+    }
+    setRitualLog(updatedLog)
+  }
+
+  function createRitual(ritual) {
+    setRituals(prev => [ritual, ...prev])
+  }
+
+  function deleteRitual(id) {
+    setRituals(prev => prev.filter(r => r.id !== id))
   }
 
   function clearCompleted() {
@@ -255,12 +394,6 @@ export default function DayView() {
   }
 
   const todayDisplay = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-
-  // Refresh calendar events on mount (to make sure agenda is up-to-date)
-  useEffect(() => {
-    setEvents(storage.getEvents())
-    setProjects(storage.getProjects())
-  }, [])
 
   return (
     <div>
@@ -271,7 +404,7 @@ export default function DayView() {
       </div>
 
       {/* Forge Heat Progress Meter */}
-      {totalToday > 0 && (
+      {totalTodayItems > 0 && (
         <div className="forge-meter-container animate-in">
           <div className="forge-meter-header">
             <span className="forge-meter-label">
@@ -281,7 +414,7 @@ export default function DayView() {
                 <span className="forge-meter-status">⚡ Forging slate</span>
               )}
             </span>
-            <span className="forge-meter-value">{completedToday} / {totalToday} completed</span>
+            <span className="forge-meter-value">{completedTodayItems} / {totalTodayItems} completed</span>
           </div>
           <div className="forge-meter-track">
             <div 
@@ -297,20 +430,126 @@ export default function DayView() {
         </div>
       )}
 
+      {/* Daily Rituals (Habits) checklist row */}
+      <div style={{ padding: '0 20px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+          <span className="divider-label" style={{ padding: 0 }}>
+            Daily Rituals · {completedTodayRituals}/{activeRituals.length}
+          </span>
+          <button
+            onClick={() => setShowRitualSheet(true)}
+            style={{ 
+              background: 'var(--accent-gold-bg)', 
+              border: 'none', 
+              color: 'var(--accent-gold)', 
+              font: '600 11px var(--font-sans)', 
+              padding: '4px 8px', 
+              borderRadius: 'var(--radius-sm)', 
+              cursor: 'pointer' 
+            }}
+          >
+            + New Habit
+          </button>
+        </div>
+
+        {activeRituals.length === 0 ? (
+          <div className="card glass-card" style={{ padding: '16px', textAlign: 'center', background: 'var(--bg-surface)' }}>
+            <p style={{ font: '400 12px var(--font-sans)', color: 'var(--text-muted)' }}>No rituals scheduled for today.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '6px', scrollbarWidth: 'none' }}>
+            {activeRituals.map(rit => {
+              const done = ritualLog[todayKey]?.[rit.id] || false
+              return (
+                <div
+                  key={rit.id}
+                  onClick={() => toggleRitual(rit.id)}
+                  style={{
+                    flex: '0 0 auto',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: done ? '1.5px solid var(--accent-gold)' : '1.5px solid var(--border)',
+                    background: done ? 'var(--accent-gold-bg)' : 'var(--bg-surface)',
+                    color: done ? 'var(--accent-gold)' : 'var(--text-primary)',
+                    cursor: 'pointer',
+                    boxShadow: done ? '0 0 12px rgba(176, 125, 53, 0.15)' : 'none',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
+                >
+                  <span style={{ font: '600 13px var(--font-sans)', display: 'block' }}>{rit.name}</span>
+                  <span style={{ font: '500 9px var(--font-sans)', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    {rit.reminderTime ? `🔔 ${rit.reminderTime}` : 'Check off'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Task input */}
       <form onSubmit={addTask}>
-        <div className="input-bar">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Add a task for today..."
-            id="day-task-input"
-            autoComplete="off"
-          />
-          <button className="add-btn" type="submit" aria-label="Add task">
-            <Icons.Plus />
-          </button>
+        <div className="input-bar" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px' }}>
+          <div style={{ display: 'flex', width: '100%' }}>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              placeholder="Add a task for today..."
+              id="day-task-input"
+              autoComplete="off"
+              style={{ flex: 1 }}
+            />
+            
+            {/* Custom Task Reminder Trigger Toggle */}
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setShowReminderPicker(p => !p)}
+              style={{ margin: '0 4px', color: reminderTime ? 'var(--accent-gold)' : 'var(--text-muted)' }}
+              title="Set reminder time"
+            >
+              <Icons.Clock />
+            </button>
+
+            <button className="add-btn" type="submit" aria-label="Add task">
+              <Icons.Plus />
+            </button>
+          </div>
+
+          {/* Time Picker block when enabled */}
+          {showReminderPicker && (
+            <div className="animate-in" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 6px', borderTop: '1px solid var(--border)' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Alert Time:</label>
+              <input
+                type="time"
+                value={reminderTime}
+                onChange={e => setReminderTime(e.target.value)}
+                style={{
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-base)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '3px 8px',
+                  color: 'var(--text-primary)',
+                  fontSize: '12px',
+                  fontFamily: 'var(--font-sans)'
+                }}
+              />
+              {reminderTime && (
+                <button
+                  type="button"
+                  onClick={() => setReminderTime('')}
+                  style={{ font: '500 10px var(--font-sans)', border: 'none', background: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                >
+                  Clear Alert
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </form>
 
@@ -426,7 +665,14 @@ export default function DayView() {
           onFile={handleFileSpark}
         />
       )}
+
+      {/* New Ritual Sheet */}
+      {showRitualSheet && (
+        <NewRitualSheet
+          onClose={() => setShowRitualSheet(false)}
+          onCreate={createRitual}
+        />
+      )}
     </div>
   )
 }
-
