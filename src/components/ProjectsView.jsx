@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { storage, uid } from '../utils/storage.js'
+import { uid } from '../utils/storage.js'
+import { getLabels } from '../utils/copy.js'
 import { Icons } from './Icons.jsx'
+import ScratchpadPreview from './ScratchpadPreview.jsx'
 
-// ── Project task list ──────────────────────────────────────
-function ProjectTaskList({ project, onUpdate }) {
+function ProjectTaskList({ project, onUpdate, onSendToToday }) {
   const [input, setInput] = useState('')
 
   function addTask(e) {
@@ -56,13 +57,25 @@ function ProjectTaskList({ project, onUpdate }) {
                 <Icons.Check />
               </button>
               <span className="task-text">{task.text}</span>
-              <button 
-                className="task-action-icon-btn delete-btn" 
-                onClick={() => deleteTask(task.id)} 
-                aria-label="Delete task"
-              >
-                <Icons.X size={13} />
-              </button>
+              <div className="task-actions">
+                {!task.done && onSendToToday && (
+                  <button
+                    className="task-action-icon-btn route-btn"
+                    onClick={() => onSendToToday(task.text)}
+                    title="Add to Today"
+                    aria-label="Send to today"
+                  >
+                    <Icons.TodayArrow size={13} />
+                  </button>
+                )}
+                <button 
+                  className="task-action-icon-btn delete-btn" 
+                  onClick={() => deleteTask(task.id)} 
+                  aria-label="Delete task"
+                >
+                  <Icons.X size={13} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -71,17 +84,16 @@ function ProjectTaskList({ project, onUpdate }) {
   )
 }
 
-// ── Single Project Card ────────────────────────────────────
-function ProjectCard({ project, onUpdate, onDelete }) {
+function ProjectCard({ project, onUpdate, onDelete, onSendToToday, labels }) {
   const [open, setOpen]     = useState(false)
   const [tab, setTab]       = useState('tasks')
+  const [scratchMode, setScratchMode] = useState('edit')
   const [scratch, setScratch] = useState(project.scratchpad || '')
 
   useEffect(() => {
     setScratch(project.scratchpad || '')
   }, [project.scratchpad])
 
-  // save scratchpad on blur
   function saveScratch() {
     onUpdate({ ...project, scratchpad: scratch })
   }
@@ -90,7 +102,7 @@ function ProjectCard({ project, onUpdate, onDelete }) {
   const totalCount = (project.tasks || []).length
 
   return (
-    <div className="project-card">
+    <div className={`project-card ${project.pinned ? 'project-card--pinned' : ''}`}>
       <div
         className="project-card__header"
         onClick={() => setOpen(o => !o)}
@@ -101,7 +113,10 @@ function ProjectCard({ project, onUpdate, onDelete }) {
         id={`project-header-${project.id}`}
       >
         <div>
-          <div className="project-card__name">{project.name}</div>
+          <div className="project-card__name">
+            {project.pinned && <span className="project-pin-badge" title="Pinned"><Icons.Pin size={12} /></span>}
+            {project.name}
+          </div>
           <div className="project-card__meta">
             {totalCount === 0 ? 'No tasks' : `${doneCount} / ${totalCount} done`}
             {project.tag ? <span className="tag tag--gold" style={{ marginLeft: 8 }}>{project.tag}</span> : null}
@@ -114,7 +129,6 @@ function ProjectCard({ project, onUpdate, onDelete }) {
 
       <div className={`project-card__body ${open ? 'open' : ''}`}>
         <div className="project-card__body-inner">
-          {/* Tab switcher */}
           <div className="project-tabs">
             <button
               className={`project-tab ${tab === 'tasks' ? 'active' : ''}`}
@@ -133,19 +147,69 @@ function ProjectCard({ project, onUpdate, onDelete }) {
           </div>
 
           {tab === 'tasks' && (
-            <ProjectTaskList project={project} onUpdate={onUpdate} />
+            <ProjectTaskList project={project} onUpdate={onUpdate} onSendToToday={onSendToToday} />
           )}
 
           {tab === 'scratch' && (
-            <textarea
-              className="scratchpad"
-              value={scratch}
-              onChange={e => setScratch(e.target.value)}
-              onBlur={saveScratch}
-              placeholder="Dump raw thoughts, dimensions, links, code snippets, anything..."
-              id={`project-scratch-${project.id}`}
-            />
+            <>
+              <div className="scratchpad-subtabs">
+                <button
+                  type="button"
+                  className={`scratchpad-subtab ${scratchMode === 'edit' ? 'active' : ''}`}
+                  onClick={() => setScratchMode('edit')}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className={`scratchpad-subtab ${scratchMode === 'preview' ? 'active' : ''}`}
+                  onClick={() => setScratchMode('preview')}
+                >
+                  Preview
+                </button>
+              </div>
+              {scratchMode === 'edit' ? (
+                <>
+                  <textarea
+                    className="scratchpad"
+                    value={scratch}
+                    onChange={e => setScratch(e.target.value)}
+                    onBlur={saveScratch}
+                    placeholder="Dump raw thoughts, dimensions, links, code snippets, anything..."
+                    id={`project-scratch-${project.id}`}
+                  />
+                  <p className="scratchpad-hint">
+                    Use &quot;- [ ] item&quot; for checklists. Links become tappable in Preview.
+                  </p>
+                </>
+              ) : (
+                <ScratchpadPreview
+                  text={scratch}
+                  onChange={next => {
+                    setScratch(next)
+                    onUpdate({ ...project, scratchpad: next })
+                  }}
+                />
+              )}
+            </>
           )}
+
+          <div className="project-card-actions">
+            <button
+              type="button"
+              className="project-action-btn"
+              onClick={() => onUpdate({ ...project, pinned: !project.pinned })}
+            >
+              {project.pinned ? 'Unpin' : 'Pin'}
+            </button>
+            <button
+              type="button"
+              className="project-action-btn"
+              onClick={() => onUpdate({ ...project, archived: !project.archived })}
+            >
+              {project.archived ? 'Restore' : 'Archive'}
+            </button>
+          </div>
 
           <button className="project-delete-btn" onClick={() => onDelete(project.id)}>
             <Icons.Trash /> Delete project
@@ -156,7 +220,6 @@ function ProjectCard({ project, onUpdate, onDelete }) {
   )
 }
 
-// ── New Project Sheet ──────────────────────────────────────
 function NewProjectSheet({ onClose, onCreate }) {
   const [name, setName] = useState('')
   const [tag, setTag]   = useState('')
@@ -165,7 +228,7 @@ function NewProjectSheet({ onClose, onCreate }) {
     e.preventDefault()
     const n = name.trim()
     if (!n) return
-    onCreate({ id: uid(), name: n, tag: tag.trim(), tasks: [], scratchpad: '' })
+    onCreate({ id: uid(), name: n, tag: tag.trim(), tasks: [], scratchpad: '', pinned: false, archived: false })
     onClose()
   }
 
@@ -198,9 +261,14 @@ function NewProjectSheet({ onClose, onCreate }) {
   )
 }
 
-// ── Projects View ──────────────────────────────────────────
-export default function ProjectsView({ projects = [], onUpdateProjects }) {
+export default function ProjectsView({ projects = [], onUpdateProjects, onSendToToday, plainLanguage = false }) {
   const [showSheet, setShowSheet] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const labels = getLabels(plainLanguage)
+
+  const active = projects.filter(p => !p.archived)
+  const archived = projects.filter(p => p.archived)
+  const sortedActive = [...active].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
 
   function createProject(p) {
     onUpdateProjects([p, ...projects])
@@ -218,10 +286,10 @@ export default function ProjectsView({ projects = [], onUpdateProjects }) {
     <div>
       <div className="section-header">
         <h1 className="section-title">Projects</h1>
-        <p className="section-subtitle">Your active labs — code, woodworking, and beyond.</p>
+        <p className="section-subtitle">{labels.projectsSubtitle}</p>
       </div>
 
-      {projects.length === 0 && (
+      {sortedActive.length === 0 && archived.length === 0 && (
         <div className="empty-state">
           <div className="empty-state__icon"><Icons.Projects /></div>
           <p className="empty-state__label">No projects yet. Create your first workspace below.</p>
@@ -229,10 +297,43 @@ export default function ProjectsView({ projects = [], onUpdateProjects }) {
       )}
 
       <div className="project-grid">
-        {projects.map(p => (
-          <ProjectCard key={p.id} project={p} onUpdate={updateProject} onDelete={deleteProject} />
+        {sortedActive.map(p => (
+          <ProjectCard
+            key={p.id}
+            project={p}
+            onUpdate={updateProject}
+            onDelete={deleteProject}
+            onSendToToday={onSendToToday}
+            labels={labels}
+          />
         ))}
       </div>
+
+      {archived.length > 0 && (
+        <div style={{ padding: '0 20px 16px' }}>
+          <button
+            type="button"
+            className="archived-toggle"
+            onClick={() => setShowArchived(s => !s)}
+          >
+            {showArchived ? 'Hide' : 'Show'} archived ({archived.length})
+          </button>
+          {showArchived && (
+            <div className="project-grid" style={{ marginTop: 12, opacity: 0.85 }}>
+              {archived.map(p => (
+                <ProjectCard
+                  key={p.id}
+                  project={p}
+                  onUpdate={updateProject}
+                  onDelete={deleteProject}
+                  onSendToToday={onSendToToday}
+                  labels={labels}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <button
         className="new-project-btn"

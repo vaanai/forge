@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react'
-import { storage, uid } from '../utils/storage.js'
+import { useState } from 'react'
+import { uid } from '../utils/storage.js'
+import { eventMatchesDay, DOW_LABELS } from '../utils/recurring.js'
+import { upcomingOnDay, getComingUpItems, formatDueLabel, daysWithUpcoming } from '../utils/upcoming.js'
+import { getLabels } from '../utils/copy.js'
 import { Icons } from './Icons.jsx'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -34,15 +37,29 @@ function formatHour(h) {
 // ── Add Event Sheet ────────────────────────────────────────
 function AddEventSheet({ dateKey, onClose, onAdd }) {
   const [name,  setName]  = useState('')
+  const [notes, setNotes] = useState('')
   const [hour,  setHour]  = useState(8)
   const [duration, setDuration] = useState(1)
   const [color, setColor] = useState('blue')
+  const [repeats, setRepeats] = useState(false)
+  const [repeatDays, setRepeatDays] = useState([new Date(dateKey + 'T12:00:00').getDay()])
+
+  function toggleDay(dayIdx) {
+    setRepeatDays(prev =>
+      prev.includes(dayIdx) ? prev.filter(d => d !== dayIdx) : [...prev, dayIdx]
+    )
+  }
 
   function submit(e) {
     e.preventDefault()
     const n = name.trim()
     if (!n) return
-    onAdd({ id: uid(), dateKey, name: n, hour: Number(hour), duration: Number(duration), color })
+    const base = { id: uid(), name: n, hour: Number(hour), duration: Number(duration), color, notes: notes.trim() }
+    if (repeats && repeatDays.length > 0) {
+      onAdd({ ...base, repeatDays: [...repeatDays].sort() })
+    } else {
+      onAdd({ ...base, dateKey })
+    }
     onClose()
   }
 
@@ -121,20 +138,186 @@ function AddEventSheet({ dateKey, onClose, onAdd }) {
             ))}
           </div>
 
-          <button className="sheet-btn" type="submit">Add Event</button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
+            <input type="checkbox" checked={repeats} onChange={e => setRepeats(e.target.checked)} />
+            Repeat weekly
+          </label>
+          {repeats && (
+            <div className="repeat-day-row" style={{ marginTop: 10 }}>
+              {DOW_LABELS.map((label, idx) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={`repeat-day-chip ${repeatDays.includes(idx) ? 'active' : ''}`}
+                  onClick={() => toggleDay(idx)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginTop: 14, marginBottom: 4 }}>
+            Notes (optional)
+          </label>
+          <textarea
+            className="event-detail-notes"
+            style={{ marginTop: 0 }}
+            placeholder="Bring materials, topics to discuss..."
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={3}
+          />
+
+          <button className="sheet-btn" type="submit" style={{ marginTop: 14 }}>Add Event</button>
         </form>
       </div>
     </div>
   )
 }
 
+function EventDetailSheet({ event, onClose, onUpdate, onDelete }) {
+  const [notes, setNotes] = useState(event.notes || '')
+
+  const duration = event.duration || 1
+  const endHour = event.hour + duration
+  const timeLabel = `${formatHour(event.hour)} – ${formatHour(endHour >= 24 ? endHour - 24 : endHour)}`
+
+  function saveNotes() {
+    onUpdate({ ...event, notes: notes.trim() })
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={e => e.stopPropagation()}>
+        <div className="sheet__handle" />
+        <h2 className="sheet__title">{event.name}</h2>
+        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: 4 }}>{timeLabel}</p>
+        {event.repeatDays?.length ? (
+          <p style={{ fontSize: '12px', color: 'var(--accent-blue)', marginBottom: 12 }}>
+            Repeats weekly ({event.repeatDays.map(d => DOW_LABELS[d]).join(', ')})
+          </p>
+        ) : event.dateKey ? (
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: 12 }}>
+            {new Date(event.dateKey + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </p>
+        ) : null}
+
+        <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+          Notes
+        </label>
+        <textarea
+          className="event-detail-notes"
+          style={{ marginTop: 0 }}
+          placeholder="Add notes..."
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          onBlur={saveNotes}
+          rows={4}
+        />
+
+        <button className="sheet-btn" type="button" style={{ marginTop: 14 }} onClick={() => { saveNotes(); onClose() }}>
+          Save
+        </button>
+        <button
+          className="sheet-btn secondary-btn"
+          type="button"
+          style={{ marginTop: 8 }}
+          onClick={() => { onDelete(event.id); onClose() }}
+        >
+          Delete event
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AddUpcomingSheet({ dateKey, onClose, onAdd, labels }) {
+  const [text, setText] = useState('')
+  const [dueDate, setDueDate] = useState(dateKey)
+
+  function submit(e) {
+    e.preventDefault()
+    const t = text.trim()
+    if (!t || !dueDate) return
+    onAdd({ id: uid(), text: t, dueDate, done: false, createdAt: Date.now() })
+    onClose()
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={e => e.stopPropagation()}>
+        <div className="sheet__handle" />
+        <h2 className="sheet__title">{labels.addDeadline}</h2>
+        <form onSubmit={submit}>
+          <input
+            className="sheet-input"
+            placeholder="Assignment or task (e.g. Calc problem set 3)"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            autoFocus
+          />
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginTop: 12, marginBottom: 4 }}>
+            Due date
+          </label>
+          <input
+            className="sheet-input"
+            type="date"
+            value={dueDate}
+            onChange={e => setDueDate(e.target.value)}
+          />
+          <button className="sheet-btn" type="submit" style={{ marginTop: 14 }}>Add</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function UpcomingRow({ item, todayKey, onComplete, onPromote, onDelete }) {
+  const overdue = item.dueDate < todayKey
+  return (
+    <div className="upcoming-row">
+      <span className="upcoming-row__date">{formatDueLabel(item.dueDate, todayKey)}</span>
+      <span className={`upcoming-row__text ${overdue ? 'overdue' : ''}`}>{item.text}</span>
+      <div className="upcoming-row__actions">
+        <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromote(item.id)}>
+          Today
+        </button>
+        <button type="button" className="upcoming-action-btn" onClick={() => onComplete(item.id)}>Done</button>
+        <button type="button" className="upcoming-action-btn" onClick={() => onDelete(item.id)} aria-label="Delete">
+          <Icons.X size={10} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Calendar View ──────────────────────────────────────────
-export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, todayKey }) {
+export default function CalendarView({
+  events = [],
+  upcoming = [],
+  onAddEvent,
+  onUpdateEvent,
+  onDeleteEvent,
+  onAddUpcoming,
+  onCompleteUpcoming,
+  onPromoteUpcoming,
+  onDeleteUpcoming,
+  todayKey,
+  plainLanguage = false,
+}) {
+  const labels = getLabels(plainLanguage)
   const today = new Date()
   const [year,  setYear]  = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [selectedKey, setSelectedKey] = useState(todayKey || toDateKey(today))
   const [showSheet, setShowSheet] = useState(false)
+  const [showUpcomingSheet, setShowUpcomingSheet] = useState(false)
+  const [detailEvent, setDetailEvent] = useState(null)
+
+  const dueDates = daysWithUpcoming(upcoming)
+  const comingUp = getComingUpItems(upcoming, todayKey || toDateKey(today))
+  const dayDue = upcomingOnDay(upcoming, selectedKey)
 
   function addEvent(ev) {
     onAddEvent(ev)
@@ -177,7 +360,7 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
 
   // Events for selected day, sorted by hour
   const dayEvents = events
-    .filter(e => e.dateKey === selectedKey)
+    .filter(e => eventMatchesDay(e, selectedKey))
     .sort((a, b) => a.hour - b.hour)
 
   // Hours that have events (for timeline indicator)
@@ -193,6 +376,22 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
         <h1 className="section-title">Calendar</h1>
         <p className="section-subtitle">Your schedule at a glance.</p>
       </div>
+
+      {comingUp.length > 0 && (
+        <div className="coming-up-strip">
+          <h3 className="coming-up-strip__title">{labels.comingUp}</h3>
+          {comingUp.map(item => (
+            <UpcomingRow
+              key={item.id}
+              item={item}
+              todayKey={todayKey || toDateKey(today)}
+              onComplete={onCompleteUpcoming}
+              onPromote={onPromoteUpcoming}
+              onDelete={onDeleteUpcoming}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Month Nav */}
       <div className="calendar-month">
@@ -214,8 +413,9 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
           const tdy = k === todayKey
           
           const dayColors = k 
-            ? Array.from(new Set(events.filter(e => e.dateKey === k).map(e => e.color || 'blue')))
+            ? Array.from(new Set(events.filter(e => eventMatchesDay(e, k)).map(e => e.color || 'blue')))
             : []
+          const hasDue = k && dueDates.has(k)
           
           return (
             <div
@@ -230,11 +430,12 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
               id={k ? `cal-day-${k}` : undefined}
             >
               {cell.day}
-              {k && dayColors.length > 0 && (
+              {k && (dayColors.length > 0 || hasDue) && (
                 <div className="cal-day-dots">
                   {dayColors.map(color => (
                     <span key={color} className={`cal-dot cal-dot--${color}`} />
                   ))}
+                  {hasDue && <span className="cal-dot cal-dot--due" />}
                 </div>
               )}
             </div>
@@ -245,16 +446,47 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
       {/* Selected day timeline */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px' }}>
         <span className="timeline-day-header">{selLabel}</span>
-        <button
-          className="icon-btn"
-          onClick={() => setShowSheet(true)}
-          style={{ background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#fff' }}
-          aria-label="Add event"
-          id="add-event-btn"
-        >
-          <Icons.Plus size={14} />
-        </button>
+        <div className="calendar-day-actions">
+          <button
+            className="icon-btn"
+            onClick={() => setShowUpcomingSheet(true)}
+            style={{ background: 'var(--accent-gold)', borderColor: 'var(--accent-gold)', color: '#fff' }}
+            aria-label={labels.addDeadline}
+            title={labels.addDeadline}
+          >
+            <Icons.Calendar />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => setShowSheet(true)}
+            style={{ background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#fff' }}
+            aria-label="Add event"
+            id="add-event-btn"
+          >
+            <Icons.Plus size={14} />
+          </button>
+        </div>
       </div>
+
+      {dayDue.length > 0 && (
+        <div className="due-day-section">
+          <div className="due-day-section__title">{labels.dueSection}</div>
+          {dayDue.map(item => (
+            <div key={item.id} className="due-item">
+              <span className="due-item__name">{item.text}</span>
+              <div className="upcoming-row__actions">
+                <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromoteUpcoming(item.id)}>
+                  Today
+                </button>
+                <button type="button" className="upcoming-action-btn" onClick={() => onCompleteUpcoming(item.id)}>Done</button>
+                <button type="button" className="upcoming-action-btn" onClick={() => onDeleteUpcoming(item.id)} aria-label="Delete">
+                  <Icons.X size={10} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="timeline-scroll">
         {HOURS.map(h => {
@@ -287,15 +519,28 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'center',
-                        alignItems: 'stretch'
+                        alignItems: 'stretch',
+                        cursor: 'pointer',
                       }}
+                      onClick={() => setDetailEvent(ev)}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
                         <div style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
                           <div className="event-block__name">{ev.name}</div>
-                          <div className="event-block__time">{timeLabel}</div>
+                          <div className="event-block__time">
+                            {timeLabel}
+                            {ev.repeatDays?.length ? ' · ↻ weekly' : ''}
+                          </div>
+                          {ev.notes?.trim() && (
+                            <div className="event-block__notes-preview">{ev.notes.trim()}</div>
+                          )}
                         </div>
-                        <button className="event-delete" onClick={() => deleteEvent(ev.id)} aria-label="Delete event" style={{ marginTop: -2 }}>
+                        <button
+                          className="event-delete"
+                          onClick={e => { e.stopPropagation(); deleteEvent(ev.id) }}
+                          aria-label="Delete event"
+                          style={{ marginTop: -2 }}
+                        >
                           <Icons.X size={12} />
                         </button>
                       </div>
@@ -313,6 +558,24 @@ export default function CalendarView({ events = [], onAddEvent, onDeleteEvent, t
           dateKey={selectedKey}
           onClose={() => setShowSheet(false)}
           onAdd={addEvent}
+        />
+      )}
+
+      {showUpcomingSheet && (
+        <AddUpcomingSheet
+          dateKey={selectedKey}
+          onClose={() => setShowUpcomingSheet(false)}
+          onAdd={onAddUpcoming}
+          labels={labels}
+        />
+      )}
+
+      {detailEvent && (
+        <EventDetailSheet
+          event={detailEvent}
+          onClose={() => setDetailEvent(null)}
+          onUpdate={ev => { onUpdateEvent(ev); setDetailEvent(ev) }}
+          onDelete={deleteEvent}
         />
       )}
     </div>

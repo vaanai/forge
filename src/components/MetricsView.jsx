@@ -2,13 +2,86 @@
 // Zen analytics, daily consistency heatmap, habit streaks, and Procrastination Audit (avoiding-list).
 import { Icons } from './Icons.jsx'
 import { toDateKey } from '../utils/storage.js'
+import { getLabels, getTemperingLabel } from '../utils/copy.js'
+import { countTasksCompletedOnDay, countTasksScheduledOnDay, computeCurrentStreak } from '../utils/recurring.js'
 
-export default function MetricsView({ tasks = [], events = [], rituals = [], ritualLog = {} }) {
-  // ── Calculate 7-Day Consistency Heatmap ───────────────────
+// ── Alloy Routines Stats & Tempering Helper ──────────────────
+function getAlloyStats(alloy, ritualLog, rituals, plainLanguage) {
+  const alloyRituals = rituals.filter(r => alloy.ritualIds.includes(r.id))
+  if (alloyRituals.length === 0) {
+    return {
+      streak: 0,
+      temperingClass: 'tempering-raw',
+      temperingLabel: getTemperingLabel(0, plainLanguage),
+      completedToday: false,
+      progressPct: 0,
+      completedCount: 0,
+      totalCount: 0
+    }
+  }
+
+  let streak = 0
   const today = new Date()
+  let checkDate = new Date(today)
+  const todayKey = toDateKey(today)
+  let completedToday = false
+  
+  for (let d = 0; d < 100; d++) {
+    const key = toDateKey(checkDate)
+    const isToday = key === todayKey
+    
+    const dayOfWeek = checkDate.getDay()
+    const isActiveOnDay = alloy.days.includes(dayOfWeek)
+    
+    if (isActiveOnDay) {
+      const logged = ritualLog[key] || {}
+      const completedAll = alloyRituals.every(r => logged[r.id])
+      
+      if (completedAll) {
+        streak++
+        if (isToday) completedToday = true
+      } else {
+        if (!isToday) break
+      }
+    }
+    checkDate.setDate(checkDate.getDate() - 1)
+  }
+
+  let temperingClass = 'tempering-raw'
+  let temperingLabel = getTemperingLabel(streak, plainLanguage)
+  if (streak >= 21) temperingClass = 'tempering-damascus'
+  else if (streak >= 7) temperingClass = 'tempering-steel'
+  else if (streak >= 3) temperingClass = 'tempering-bronze'
+
+  const completedCount = alloyRituals.filter(r => ritualLog[todayKey]?.[r.id]).length
+  const totalCount = alloyRituals.length
+  const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+
+  return {
+    streak,
+    temperingClass,
+    temperingLabel,
+    completedToday,
+    progressPct,
+    completedCount,
+    totalCount
+  }
+}
+
+export default function MetricsView({
+  tasks = [],
+  events = [],
+  rituals = [],
+  ritualLog = {},
+  alloys = [],
+  todayKey,
+  plainLanguage = false,
+}) {
+  const labels = getLabels(plainLanguage)
+  const today = new Date()
+  const todayKeyResolved = todayKey || toDateKey(today)
   const weekDays = []
   
-  // Get start of the current week (Sunday)
   const sunday = new Date(today)
   sunday.setDate(today.getDate() - today.getDay())
   
@@ -16,22 +89,13 @@ export default function MetricsView({ tasks = [], events = [], rituals = [], rit
     const day = new Date(sunday)
     day.setDate(sunday.getDate() + i)
     const key = toDateKey(day)
-    
-    // Filter tasks completed on or scheduled for this day
-    // (If tasks are completed, they might not have a dateKey, but we assume active daily tasks completed count towards today)
-    const completedTasksOnDay = key === toDateKey(today) 
-      ? tasks.filter(t => t.done).length 
-      : 0 // LocalStorage doesn't store historic done tasks with completion dates, so we blend logs and active states
-      
-    const totalTasksOnDay = key === toDateKey(today)
-      ? tasks.length
-      : 0
 
-    // Filter rituals scheduled for this day of week
+    const completedTasksOnDay = countTasksCompletedOnDay(tasks, key, todayKeyResolved)
+    const totalTasksOnDay = countTasksScheduledOnDay(tasks, key)
+
     const dayOfWeek = day.getDay()
     const activeRituals = rituals.filter(r => r.days.includes(dayOfWeek))
     const totalRituals = activeRituals.length
-    
     const completedRituals = activeRituals.filter(r => ritualLog[key]?.[r.id]).length
     
     const totalItems = totalTasksOnDay + totalRituals
@@ -42,7 +106,7 @@ export default function MetricsView({ tasks = [], events = [], rituals = [], rit
       date: day,
       key,
       pct,
-      isToday: key === toDateKey(today),
+      isToday: key === todayKeyResolved,
       totalItems,
       completedItems,
       label: day.toLocaleDateString('en-US', { weekday: 'short' }),
@@ -50,31 +114,7 @@ export default function MetricsView({ tasks = [], events = [], rituals = [], rit
     })
   }
 
-  // ── Calculate Active Streaks ──────────────────────────────
-  // We check the ritualLog and count consecutive days in the past with completions
-  let currentStreak = 0
-  let checkingDate = new Date(today)
-  
-  while (true) {
-    const key = toDateKey(checkingDate)
-    const logged = ritualLog[key]
-    const dayOfWeek = checkingDate.getDay()
-    const activeRituals = rituals.filter(r => r.days.includes(dayOfWeek))
-    
-    // Check if anything was completed on this day (task completed or ritual done)
-    const ritualDone = activeRituals.length > 0 && activeRituals.some(r => logged?.[r.id])
-    
-    // If it's today, we check if today is still in progress, but we don't break streak yet if not completed
-    const isToday = key === toDateKey(today)
-    
-    if (ritualDone || (isToday && tasks.some(t => t.done))) {
-      currentStreak++
-    } else {
-      if (!isToday) break // break if past day has no activity
-    }
-    
-    checkingDate.setDate(checkingDate.getDate() - 1)
-  }
+  const currentStreak = computeCurrentStreak(tasks, rituals, ritualLog, todayKeyResolved)
 
   // ── Calculate Procrastination Audit (Tasks Snoozed Most) ──
   const avoidedTasks = [...tasks]
@@ -87,7 +127,7 @@ export default function MetricsView({ tasks = [], events = [], rituals = [], rit
       {/* Header */}
       <div className="section-header">
         <h1 className="section-title">Metrics</h1>
-        <p className="section-subtitle">A mindful reflection of your energy & consistency.</p>
+        <p className="section-subtitle">{labels.metricsSubtitle}</p>
       </div>
 
       {/* Grid Layout */}
@@ -169,6 +209,81 @@ export default function MetricsView({ tasks = [], events = [], rituals = [], rit
             })}
           </div>
         </div>
+
+        {/* Alloy Routine Tempering */}
+        {alloys.length > 0 && (
+          <div className="card glass-card" style={{ padding: '20px' }}>
+            <h3 style={{ font: '600 14px var(--font-sans)', color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>🔗 {labels.temperingTitle}</span>
+            </h3>
+            <p style={{ font: '400 12px var(--font-sans)', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              {labels.temperingDesc}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {alloys.map(alloy => {
+                const stats = getAlloyStats(alloy, ritualLog, rituals, plainLanguage)
+                return (
+                  <div 
+                    key={alloy.id} 
+                    className={`alloy-card ${stats.temperingClass}`}
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0, flex: 1, paddingRight: '8px' }}>
+                        <h4 style={{ font: '600 14px var(--font-sans)', color: 'var(--text-primary)', margin: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px' }}>
+                          <span>{alloy.name}</span>
+                          <span className={`tag tag--${stats.temperingClass}`} style={{ fontSize: '9px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>
+                            {stats.temperingLabel}
+                          </span>
+                        </h4>
+                        {alloy.anchorType !== 'none' && (
+                          <span style={{ fontSize: '10px', color: 'var(--accent-gold)', fontWeight: 500, display: 'inline-block', marginTop: '4px' }}>
+                            ⚓ {alloy.anchorType === 'time' ? `At ${alloy.anchorValue}` : `After "${alloy.anchorValue}"`}
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ font: '700 16px var(--font-sans)', color: 'var(--text-primary)' }}>
+                          🔥 {stats.streak} <span style={{ font: '500 10px var(--font-sans)', color: 'var(--text-muted)', textTransform: 'uppercase' }}>days</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                        <span>Routine links: {stats.completedCount} / {stats.totalCount}</span>
+                        <span>{stats.progressPct}% done</span>
+                      </div>
+                      <div className="weld-drawer__progress-bar" style={{ height: '6px', background: 'var(--border)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+                        <div 
+                          className="weld-drawer__progress-fill" 
+                          style={{ 
+                            width: `${stats.progressPct}%`, 
+                            height: '100%', 
+                            background: stats.progressPct === 100 ? 'var(--accent-gold)' : 'var(--accent-blue)',
+                            borderRadius: 'var(--radius-full)',
+                            transition: 'width 0.3s ease'
+                          }} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Procrastination Audit (Avoided Tasks) */}
         <div className="card glass-card" style={{ padding: '20px' }}>

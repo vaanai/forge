@@ -7,6 +7,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Avoid service worker on dev server (port 5173) — it can cache broken builds
+      devOptions: { enabled: false },
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Forge',

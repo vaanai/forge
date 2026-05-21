@@ -1,0 +1,88 @@
+// UI labels — forge theme vs plain language (settings.plainLanguage)
+
+const FORGE = {
+  sparks: 'Sparks',
+  sparksInbox: 'Sparks Inbox',
+  sparkCapture: 'Capture a quick thought, idea, or note...',
+  sparkEmpty: 'Sparks are raw thoughts you can promote to tasks or file to projects.',
+  rituals: 'Daily Rituals',
+  habits: 'Habits',
+  newHabit: '+ New Habit',
+  newRoutine: '+ New Routine',
+  standaloneHabits: 'Standalone Habits',
+  noRitualsToday: 'No rituals scheduled for today.',
+  alloyRoutine: 'Routine',
+  forgeProgress: 'Forging slate',
+  forgeIgnited: 'Forge Ignited',
+  forgeCelebration: 'The Forge is fully ignited. Excellent work today!',
+  emptySlate: 'Nothing on the slate. Add something above.',
+  dayNote: 'Day Note',
+  dayNotePlaceholder: 'Reflections, thoughts, or how today went...',
+  fileSpark: 'File Spark',
+  metricsSubtitle: 'A mindful reflection of your energy & consistency.',
+  temperingTitle: 'Routine Tempering Levels',
+  temperingDesc: 'Sequential routine tempering. Keep streaking to temper your habits into legendary Damascus steel.',
+  projectsSubtitle: 'Your active labs — code, woodworking, and beyond.',
+  laboratory: 'laboratory',
+  weld: 'Weld',
+  habitStack: 'Habit Stack Link',
+  pastNotes: 'Past Notes',
+  journalEmpty: 'No past notes yet. Day notes you write will appear here.',
+  upcoming: 'Upcoming',
+  comingUp: 'Coming Up',
+  dueToday: 'Due Today',
+  addDeadline: 'Add deadline',
+  dueSection: 'Due',
+}
+
+const PLAIN = {
+  sparks: 'Inbox',
+  sparksInbox: 'Thought Inbox',
+  sparkCapture: 'Capture a quick thought or note...',
+  sparkEmpty: 'Quick thoughts you can turn into tasks or save to a project.',
+  rituals: 'Daily Habits',
+  habits: 'Habits',
+  newHabit: '+ Habit',
+  newRoutine: '+ Routine',
+  standaloneHabits: 'Other Habits',
+  noRitualsToday: 'No habits scheduled for today.',
+  alloyRoutine: 'Routine',
+  forgeProgress: "Today's progress",
+  forgeIgnited: 'All done for today',
+  forgeCelebration: "You're all caught up for today. Nice work.",
+  emptySlate: 'No tasks yet. Add one above.',
+  dayNote: 'Day Note',
+  dayNotePlaceholder: 'Reflections, thoughts, or how today went...',
+  fileSpark: 'Save Thought',
+  metricsSubtitle: 'A calm look at your consistency.',
+  temperingTitle: 'Routine Streaks',
+  temperingDesc: 'How consistently you complete your grouped routines.',
+  projectsSubtitle: 'Your active projects and notes.',
+  laboratory: 'project',
+  weld: 'Start',
+  habitStack: 'Linked routine',
+  pastNotes: 'Past Notes',
+  journalEmpty: 'No past notes yet. Day notes you write will appear here.',
+  upcoming: 'Upcoming',
+  comingUp: 'Coming Up',
+  dueToday: 'Due Today',
+  addDeadline: 'Add deadline',
+  dueSection: 'Due',
+}
+
+export function getLabels(plainLanguage = false) {
+  return plainLanguage ? PLAIN : FORGE
+}
+
+export function getTemperingLabel(streak, plainLanguage = false) {
+  if (plainLanguage) {
+    if (streak >= 21) return '21+ day streak'
+    if (streak >= 7) return '7+ day streak'
+    if (streak >= 3) return '3+ day streak'
+    return 'Building'
+  }
+  if (streak >= 21) return 'Damascus Steel 🌌'
+  if (streak >= 7) return 'Tempered Steel ⚔️'
+  if (streak >= 3) return 'Cast Bronze 🛡️'
+  return 'Raw Iron 🪵'
+}
