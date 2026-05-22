@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Icons } from './Icons.jsx'
+import { getTaskSearchSubtitle } from '../utils/dayPlanner.js'
 
 function highlight(text, query) {
   if (!query) return text
@@ -25,6 +26,7 @@ export default function SearchSheet({
   onGoToTab,
   onOpenJournal,
   plainLanguage,
+  todayKey,
 }) {
   const [q, setQ] = useState('')
   const query = q.trim().toLowerCase()
@@ -35,7 +37,12 @@ export default function SearchSheet({
 
     tasks.forEach(t => {
       if (t.text?.toLowerCase().includes(query)) {
-        items.push({ type: 'task', tab: 'day', label: t.text, sub: 'Today · Task' })
+        items.push({
+          type: 'task',
+          tab: 'day',
+          label: t.text,
+          sub: getTaskSearchSubtitle(t, todayKey),
+        })
       }
     })
 
@@ -90,7 +97,7 @@ export default function SearchSheet({
     })
 
     return items.slice(0, 40)
-  }, [query, tasks, sparks, projects, events, upcoming, dailyNotes, plainLanguage])
+  }, [query, tasks, sparks, projects, events, upcoming, dailyNotes, plainLanguage, todayKey])
 
   function handleSelect(r) {
     if (r.type === 'note' && onOpenJournal) {

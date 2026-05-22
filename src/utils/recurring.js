@@ -85,6 +85,14 @@ export function eventMatchesDay(event, dateKey) {
   return event.dateKey === dateKey
 }
 
+export function ritualMatchesDay(ritual, dateKey) {
+  return Array.isArray(ritual.days) && ritual.days.includes(dayOfWeekFromKey(dateKey))
+}
+
+export function alloyMatchesDay(alloy, dateKey) {
+  return Array.isArray(alloy.days) && alloy.days.includes(dayOfWeekFromKey(dateKey))
+}
+
 export const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /** True if the user completed at least one scheduled habit or task on this day. */

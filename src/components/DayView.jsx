@@ -15,6 +15,8 @@ import {
 } from '../utils/recurring.js'
 import { Icons } from './Icons.jsx'
 import { NotificationTimeField, TimePickerField } from './TimePicker.jsx'
+import ConfirmSheet from './ConfirmSheet.jsx'
+import { getSnoozedTasks, formatRitualDays, formatShortDate } from '../utils/dayPlanner.js'
 
 // ── Task Item ──────────────────────────────────────────────
 function TaskItem({ task, onToggle, onDelete, onDefer, doneToday }) {
@@ -49,8 +51,8 @@ function TaskItem({ task, onToggle, onDelete, onDefer, doneToday }) {
           <button
             className="task-action-icon-btn defer-btn"
             onClick={() => onDefer(task.id)}
-            title="Snooze to tomorrow"
-            aria-label="Defer task to tomorrow"
+            title="Postpone to tomorrow"
+            aria-label="Postpone task to tomorrow"
           >
             <Icons.ArrowRight size={13} />
           </button>
@@ -175,7 +177,7 @@ function NewRitualSheet({ onClose, onCreate }) {
       id: 'rit_' + uid(),
       name: trimmed,
       days: days.sort(),
-      reminderTime: notifyEnabled && time ? time : null
+      reminderTime: notifyEnabled && time ? time : null,
     })
     onClose()
   }
@@ -697,6 +699,9 @@ export default function DayView({
   const [weldFlowAlloy, setWeldFlowAlloy] = useState(null)
   const [showAlloySheet, setShowAlloySheet] = useState(false)
   const [stackingToast, setStackingToast] = useState(null)
+  const [confirmAction, setConfirmAction] = useState(null)
+  const [ritualToast, setRitualToast] = useState(null)
+  const [dayNoteExpanded, setDayNoteExpanded] = useState(false)
   
   const [input, setInput] = useState('')
   const [sparkInput, setSparkInput] = useState('')
@@ -713,6 +718,7 @@ export default function DayView({
 
   const activeTasks = tasks.filter(t => isTaskVisibleInActiveList(t, todayKey))
   const completedTasks = tasks.filter(t => isTaskVisibleInCompletedList(t, todayKey))
+  const snoozedTasks = getSnoozedTasks(tasks, todayKey)
 
   // Filter active rituals for today
   const dayOfWeek = new Date().getDay() // 0 = Sun, 1 = Mon ...
@@ -829,6 +835,23 @@ export default function DayView({
     else setTasks(prev => prev.filter(t => t.id !== id))
   }
 
+  function requestDelete(id) {
+    const task = tasks.find(t => t.id === id)
+    setConfirmAction({ type: 'delete', taskId: id, taskText: task?.text || 'this task' })
+  }
+
+  function requestDefer(id) {
+    const task = tasks.find(t => t.id === id)
+    setConfirmAction({ type: 'defer', taskId: id, taskText: task?.text || 'this task' })
+  }
+
+  function handleConfirmAction() {
+    if (!confirmAction) return
+    if (confirmAction.type === 'defer') deferTask(confirmAction.taskId)
+    else deleteTask(confirmAction.taskId)
+    setConfirmAction(null)
+  }
+
   function deferTask(id) {
     if (onDeferTask) onDeferTask(id)
     else {
@@ -898,6 +921,15 @@ export default function DayView({
 
   function createRitual(ritual) {
     if (onCreateRitual) onCreateRitual(ritual)
+    const isActiveToday = ritual.days.includes(dayOfWeek)
+    const daysLabel = formatRitualDays(ritual)
+    const calendarNote = ' See Calendar to view on other days.'
+    setRitualToast(
+      isActiveToday
+        ? `"${ritual.name}" saved — active today (${daysLabel}).${calendarNote}`
+        : `"${ritual.name}" saved — runs on ${daysLabel}.${calendarNote}`
+    )
+    setTimeout(() => setRitualToast(null), 5000)
   }
 
   function deleteRitual(id) {
@@ -1072,15 +1104,37 @@ export default function DayView({
             </button>
           )}
         </div>
-        <textarea
-          className="day-note-input"
-          value={dayNoteDraft}
-          onChange={e => setDayNoteDraft(e.target.value)}
-          onBlur={saveDayNote}
-          placeholder={labels.dayNotePlaceholder}
-          rows={3}
-          id="day-note-input"
-        />
+        {dayNoteExpanded ? (
+          <div className="day-note-expanded">
+            <textarea
+              className="day-note-input"
+              value={dayNoteDraft}
+              onChange={e => setDayNoteDraft(e.target.value)}
+              placeholder={labels.dayNotePlaceholder}
+              rows={4}
+              id="day-note-input"
+              autoFocus
+            />
+            <button
+              type="button"
+              className="day-note-done-btn"
+              onClick={() => { saveDayNote(); setDayNoteExpanded(false) }}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="day-note-collapsed"
+            onClick={() => setDayNoteExpanded(true)}
+            id="day-note-input"
+          >
+            {dayNoteDraft.trim()
+              ? dayNoteDraft.trim().split('\n')[0]
+              : labels.dayNotePlaceholder}
+          </button>
+        )}
       </div>
 
       {/* Task input */}
@@ -1163,8 +1217,8 @@ export default function DayView({
               task={t} 
               doneToday={isTaskDoneOnDay(t, todayKey)}
               onToggle={toggleTask} 
-              onDelete={deleteTask} 
-              onDefer={deferTask}
+              onDelete={requestDelete} 
+              onDefer={requestDefer}
             />
           ))}
         </div>
@@ -1173,6 +1227,24 @@ export default function DayView({
           <div className="empty-state__icon"><Icons.Day /></div>
           <p className="empty-state__label">{labels.emptySlate}</p>
         </div>
+      )}
+
+      {snoozedTasks.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', padding: '16px 20px 8px' }}>
+            <span className="divider-label" style={{ padding: 0 }}>
+              Snoozed · {snoozedTasks.length}
+            </span>
+          </div>
+          <div className="card snoozed-card" style={{ margin: '0 20px 8px' }}>
+            {snoozedTasks.map(t => (
+              <div key={t.id} className="snoozed-item">
+                <span className="task-text">{t.text}</span>
+                <span className="snoozed-item__date">Until {formatShortDate(t.deferredUntil)}</span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Completed tasks */}
@@ -1196,7 +1268,7 @@ export default function DayView({
                 task={t} 
                 doneToday={isTaskDoneOnDay(t, todayKey)}
                 onToggle={toggleTask} 
-                onDelete={deleteTask} 
+                onDelete={requestDelete} 
               />
             ))}
           </div>
@@ -1301,6 +1373,25 @@ export default function DayView({
           onToggleRitual={toggleRitual}
           onClose={() => setWeldFlowAlloy(null)}
         />
+      )}
+
+      {confirmAction && (
+        <ConfirmSheet
+          title={confirmAction.type === 'defer' ? 'Postpone to tomorrow?' : 'Delete task?'}
+          message={
+            confirmAction.type === 'defer'
+              ? `"${confirmAction.taskText}" will move to tomorrow. You'll find it under Snoozed until then.`
+              : `"${confirmAction.taskText}" will be permanently removed.`
+          }
+          confirmLabel={confirmAction.type === 'defer' ? 'Postpone' : 'Delete'}
+          danger={confirmAction.type === 'delete'}
+          onConfirm={handleConfirmAction}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+
+      {ritualToast && (
+        <div className="share-toast">{ritualToast}</div>
       )}
 
       {/* Habit Stacking Trigger Toast */}

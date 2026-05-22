@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { parseBackupFile } from '../utils/backup.js'
+import PrivacySheet from './PrivacySheet.jsx'
 
 export default function SettingsSheet({
   onClose,
@@ -11,6 +12,7 @@ export default function SettingsSheet({
   const fileRef = useRef(null)
   const [importError, setImportError] = useState(null)
   const [pendingImport, setPendingImport] = useState(null)
+  const [showPrivacy, setShowPrivacy] = useState(false)
 
   function handleFile(e) {
     const file = e.target.files?.[0]
@@ -96,14 +98,15 @@ export default function SettingsSheet({
         )}
 
         <div className="settings-section-label" style={{ marginTop: 20 }}>Privacy</div>
-        <a
-          href="./privacy.html"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="settings-link"
+        <button
+          type="button"
+          className="settings-link-btn"
+          onClick={() => setShowPrivacy(true)}
         >
           Privacy policy
-        </a>
+        </button>
+
+        {showPrivacy && <PrivacySheet onClose={() => setShowPrivacy(false)} />}
 
         <button type="button" className="sheet-btn secondary-btn" style={{ marginTop: 16 }} onClick={onClose}>
           Done

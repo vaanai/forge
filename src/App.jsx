@@ -524,6 +524,9 @@ export default function App() {
           <CalendarView
             events={events}
             upcoming={upcoming}
+            tasks={tasks}
+            rituals={rituals}
+            alloys={alloys}
             onAddEvent={handleAddEvent}
             onUpdateEvent={handleUpdateEvent}
             onDeleteEvent={handleDeleteEvent}
@@ -591,6 +594,7 @@ export default function App() {
             setShowSearch(false)
           }}
           plainLanguage={plainLanguage}
+          todayKey={todayKey}
         />
       )}
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { uid } from '../utils/storage.js'
 import { eventMatchesDay, DOW_LABELS } from '../utils/recurring.js'
 import { upcomingOnDay, getComingUpItems, formatDueLabel, daysWithUpcoming } from '../utils/upcoming.js'
+import { getDayPlanSummary, formatBadgeCount } from '../utils/dayPlanner.js'
 import { getLabels } from '../utils/copy.js'
 import { Icons } from './Icons.jsx'
 
@@ -292,10 +293,88 @@ function UpcomingRow({ item, todayKey, onComplete, onPromote, onDelete }) {
   )
 }
 
+function DayPlannerPanel({ dateKey, tasks, rituals, alloys, events, expanded, onToggle }) {
+  const summary = getDayPlanSummary(tasks, rituals, events, dateKey, alloys)
+  const count = summary.total
+
+  return (
+    <div className="day-planner-panel">
+      <button type="button" className="day-planner-panel__toggle" onClick={onToggle}>
+        <span className="day-planner-panel__label">Tasks, habits & routines</span>
+        {count > 0 && (
+          <span className="day-planner-panel__badge" aria-label={`${count} items`}>
+            {formatBadgeCount(count)}
+          </span>
+        )}
+        <span className={`day-planner-panel__chevron ${expanded ? 'open' : ''}`}>
+          <Icons.ChevronDown />
+        </span>
+      </button>
+      {expanded && (
+        <div className="day-planner-panel__body">
+          {count === 0 ? (
+            <p className="day-planner-panel__empty">Nothing scheduled for this day.</p>
+          ) : (
+            <>
+              {summary.alloys.length > 0 && (
+                <div className="day-planner-panel__section">
+                  <div className="day-planner-panel__section-title">Routines · {formatBadgeCount(summary.alloys.length)}</div>
+                  {summary.alloys.map(a => (
+                    <div key={a.id} className="day-planner-panel__row">
+                      <span className="day-planner-panel__dot day-planner-panel__dot--routine" />
+                      <span>{a.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {summary.tasks.length > 0 && (
+                <div className="day-planner-panel__section">
+                  <div className="day-planner-panel__section-title">Tasks · {formatBadgeCount(summary.tasks.length)}</div>
+                  {summary.tasks.map(t => (
+                    <div key={t.id} className="day-planner-panel__row">
+                      <span className="day-planner-panel__dot day-planner-panel__dot--task" />
+                      <span>{t.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {summary.rituals.length > 0 && (
+                <div className="day-planner-panel__section">
+                  <div className="day-planner-panel__section-title">Habits · {formatBadgeCount(summary.rituals.length)}</div>
+                  {summary.rituals.map(r => (
+                    <div key={r.id} className="day-planner-panel__row">
+                      <span className="day-planner-panel__dot day-planner-panel__dot--ritual" />
+                      <span>{r.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {summary.events.length > 0 && (
+                <div className="day-planner-panel__section">
+                  <div className="day-planner-panel__section-title">Events · {formatBadgeCount(summary.events.length)}</div>
+                  {summary.events.map(e => (
+                    <div key={e.id} className="day-planner-panel__row">
+                      <span className="day-planner-panel__dot day-planner-panel__dot--event" />
+                      <span>{e.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Calendar View ──────────────────────────────────────────
 export default function CalendarView({
   events = [],
   upcoming = [],
+  tasks = [],
+  rituals = [],
+  alloys = [],
   onAddEvent,
   onUpdateEvent,
   onDeleteEvent,
@@ -314,6 +393,7 @@ export default function CalendarView({
   const [showSheet, setShowSheet] = useState(false)
   const [showUpcomingSheet, setShowUpcomingSheet] = useState(false)
   const [detailEvent, setDetailEvent] = useState(null)
+  const [dayPlannerOpen, setDayPlannerOpen] = useState(false)
 
   const dueDates = daysWithUpcoming(upcoming)
   const comingUp = getComingUpItems(upcoming, todayKey || toDateKey(today))
@@ -363,7 +443,6 @@ export default function CalendarView({
     .filter(e => eventMatchesDay(e, selectedKey))
     .sort((a, b) => a.hour - b.hour)
 
-  // Hours that have events (for timeline indicator)
   const eventHours = new Set(dayEvents.map(e => e.hour))
 
   // Selected date label
@@ -426,7 +505,7 @@ export default function CalendarView({
                 tdy ? 'today' : '',
                 sel ? 'selected' : '',
               ].join(' ')}
-              onClick={() => { if (cell.current && k) setSelectedKey(k) }}
+              onClick={() => { if (cell.current && k) { setSelectedKey(k); setDayPlannerOpen(false) } }}
               id={k ? `cal-day-${k}` : undefined}
             >
               {cell.day}
@@ -467,6 +546,16 @@ export default function CalendarView({
           </button>
         </div>
       </div>
+
+      <DayPlannerPanel
+        dateKey={selectedKey}
+        tasks={tasks}
+        rituals={rituals}
+        alloys={alloys}
+        events={events}
+        expanded={dayPlannerOpen}
+        onToggle={() => setDayPlannerOpen(o => !o)}
+      />
 
       {dayDue.length > 0 && (
         <div className="due-day-section">
