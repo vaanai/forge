@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { uid } from '../utils/storage.js'
 import { eventMatchesDay, DOW_LABELS } from '../utils/recurring.js'
-import { upcomingOnDay, getComingUpItems, formatDueLabel, daysWithUpcoming } from '../utils/upcoming.js'
+import { formatDueLabel } from '../utils/upcoming.js'
+import { allDueOnDay, daysWithAllDue, getAllComingUpItems } from '../utils/deadlines.js'
 import { getDayPlanSummary, formatBadgeCount } from '../utils/dayPlanner.js'
 import { getLabels } from '../utils/copy.js'
 import { Icons } from './Icons.jsx'
+import ConfirmSheet from './ConfirmSheet.jsx'
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -177,7 +179,7 @@ function AddEventSheet({ dateKey, onClose, onAdd }) {
   )
 }
 
-function EventDetailSheet({ event, onClose, onUpdate, onDelete }) {
+function EventDetailSheet({ event, onClose, onUpdate, onRequestDelete, labels }) {
   const [notes, setNotes] = useState(event.notes || '')
 
   const duration = event.duration || 1
@@ -224,7 +226,7 @@ function EventDetailSheet({ event, onClose, onUpdate, onDelete }) {
           className="sheet-btn secondary-btn"
           type="button"
           style={{ marginTop: 8 }}
-          onClick={() => { onDelete(event.id); onClose() }}
+          onClick={() => onRequestDelete(event)}
         >
           Delete event
         </button>
@@ -274,20 +276,46 @@ function AddUpcomingSheet({ dateKey, onClose, onAdd, labels }) {
   )
 }
 
-function UpcomingRow({ item, todayKey, onComplete, onPromote, onDelete }) {
+function UpcomingRow({ item, todayKey, onComplete, onPromote, onDelete, onOpenProject, onCompleteProjectTask }) {
   const overdue = item.dueDate < todayKey
+  const isCalendar = !item.source
+  const isProjectTask = item.source === 'project-task'
+  const isProjectDeadline = item.source === 'project'
+
   return (
     <div className="upcoming-row">
       <span className="upcoming-row__date">{formatDueLabel(item.dueDate, todayKey)}</span>
       <span className={`upcoming-row__text ${overdue ? 'overdue' : ''}`}>{item.text}</span>
       <div className="upcoming-row__actions">
-        <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromote(item.id)}>
-          Today
-        </button>
-        <button type="button" className="upcoming-action-btn" onClick={() => onComplete(item.id)}>Done</button>
-        <button type="button" className="upcoming-action-btn" onClick={() => onDelete(item.id)} aria-label="Delete">
-          <Icons.X size={10} />
-        </button>
+        {isProjectDeadline ? (
+          <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onOpenProject?.(item.projectId)}>
+            Open
+          </button>
+        ) : isProjectTask ? (
+          <>
+            <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromote(item.id, item)}>
+              Today
+            </button>
+            <button type="button" className="upcoming-action-btn" onClick={() => onOpenProject?.(item.projectId, item.taskId)}>
+              Open
+            </button>
+            <button type="button" className="upcoming-action-btn" onClick={() => onCompleteProjectTask?.(item.projectId, item.taskId)}>
+              Done
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromote(item.id)}>
+              Today
+            </button>
+            <button type="button" className="upcoming-action-btn" onClick={() => onComplete(item.id)}>Done</button>
+            {isCalendar && (
+              <button type="button" className="upcoming-action-btn" onClick={() => onDelete(item.id)} aria-label="Delete">
+                <Icons.X size={10} />
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -372,6 +400,7 @@ function DayPlannerPanel({ dateKey, tasks, rituals, alloys, events, expanded, on
 export default function CalendarView({
   events = [],
   upcoming = [],
+  projects = [],
   tasks = [],
   rituals = [],
   alloys = [],
@@ -382,22 +411,44 @@ export default function CalendarView({
   onCompleteUpcoming,
   onPromoteUpcoming,
   onDeleteUpcoming,
+  onOpenProject,
+  onCompleteProjectTask,
   todayKey,
   plainLanguage = false,
+  navTarget = null,
+  onNavConsumed,
 }) {
   const labels = getLabels(plainLanguage)
   const today = new Date()
+  const keyToday = todayKey || toDateKey(today)
   const [year,  setYear]  = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
-  const [selectedKey, setSelectedKey] = useState(todayKey || toDateKey(today))
+  const [selectedKey, setSelectedKey] = useState(keyToday)
   const [showSheet, setShowSheet] = useState(false)
   const [showUpcomingSheet, setShowUpcomingSheet] = useState(false)
   const [detailEvent, setDetailEvent] = useState(null)
   const [dayPlannerOpen, setDayPlannerOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
 
-  const dueDates = daysWithUpcoming(upcoming)
-  const comingUp = getComingUpItems(upcoming, todayKey || toDateKey(today))
-  const dayDue = upcomingOnDay(upcoming, selectedKey)
+  const dueDates = daysWithAllDue(upcoming, projects, keyToday)
+  const comingUp = getAllComingUpItems(upcoming, projects, keyToday)
+  const dayDue = allDueOnDay(upcoming, projects, selectedKey, keyToday)
+
+  useEffect(() => {
+    if (!navTarget || navTarget.tab !== 'calendar') return
+    if (navTarget.calendarDateKey) {
+      setSelectedKey(navTarget.calendarDateKey)
+      const d = new Date(`${navTarget.calendarDateKey}T12:00:00`)
+      setYear(d.getFullYear())
+      setMonth(d.getMonth())
+      setDayPlannerOpen(true)
+    }
+    if (navTarget.eventId) {
+      const ev = events.find(e => e.id === navTarget.eventId)
+      if (ev) setDetailEvent(ev)
+    }
+    onNavConsumed?.()
+  }, [navTarget, events, onNavConsumed])
 
   function addEvent(ev) {
     onAddEvent(ev)
@@ -405,6 +456,22 @@ export default function CalendarView({
 
   function deleteEvent(id) {
     onDeleteEvent(id)
+  }
+
+  function requestDeleteEvent(event) {
+    setConfirmAction({ type: 'deleteEvent', eventId: event.id, eventName: event.name })
+    setDetailEvent(null)
+  }
+
+  function requestDeleteDeadline(id, text) {
+    setConfirmAction({ type: 'deleteDeadline', deadlineId: id, deadlineText: text })
+  }
+
+  function handleConfirmAction() {
+    if (!confirmAction) return
+    if (confirmAction.type === 'deleteEvent') deleteEvent(confirmAction.eventId)
+    else if (confirmAction.type === 'deleteDeadline') onDeleteUpcoming(confirmAction.deadlineId)
+    setConfirmAction(null)
   }
 
   function prevMonth() {
@@ -463,10 +530,12 @@ export default function CalendarView({
             <UpcomingRow
               key={item.id}
               item={item}
-              todayKey={todayKey || toDateKey(today)}
+              todayKey={keyToday}
               onComplete={onCompleteUpcoming}
               onPromote={onPromoteUpcoming}
-              onDelete={onDeleteUpcoming}
+              onDelete={id => requestDeleteDeadline(id, item.text)}
+              onOpenProject={onOpenProject}
+              onCompleteProjectTask={onCompleteProjectTask}
             />
           ))}
         </div>
@@ -489,7 +558,7 @@ export default function CalendarView({
         {cells.map((cell, i) => {
           const k   = keyForCell(cell)
           const sel = k === selectedKey
-          const tdy = k === todayKey
+          const tdy = k === keyToday
           
           const dayColors = k 
             ? Array.from(new Set(events.filter(e => eventMatchesDay(e, k)).map(e => e.color || 'blue')))
@@ -564,13 +633,33 @@ export default function CalendarView({
             <div key={item.id} className="due-item">
               <span className="due-item__name">{item.text}</span>
               <div className="upcoming-row__actions">
-                <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromoteUpcoming(item.id)}>
-                  Today
-                </button>
-                <button type="button" className="upcoming-action-btn" onClick={() => onCompleteUpcoming(item.id)}>Done</button>
-                <button type="button" className="upcoming-action-btn" onClick={() => onDeleteUpcoming(item.id)} aria-label="Delete">
-                  <Icons.X size={10} />
-                </button>
+                {item.source === 'project' ? (
+                  <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onOpenProject?.(item.projectId)}>
+                    Open
+                  </button>
+                ) : item.source === 'project-task' ? (
+                  <>
+                    <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromoteUpcoming(item.id, item)}>
+                      Today
+                    </button>
+                    <button type="button" className="upcoming-action-btn" onClick={() => onOpenProject?.(item.projectId, item.taskId)}>
+                      Open
+                    </button>
+                    <button type="button" className="upcoming-action-btn" onClick={() => onCompleteProjectTask?.(item.projectId, item.taskId)}>
+                      Done
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromoteUpcoming(item.id)}>
+                      Today
+                    </button>
+                    <button type="button" className="upcoming-action-btn" onClick={() => onCompleteUpcoming(item.id)}>Done</button>
+                    <button type="button" className="upcoming-action-btn" onClick={() => requestDeleteDeadline(item.id, item.text)} aria-label="Delete">
+                      <Icons.X size={10} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -626,7 +715,7 @@ export default function CalendarView({
                         </div>
                         <button
                           className="event-delete"
-                          onClick={e => { e.stopPropagation(); deleteEvent(ev.id) }}
+                          onClick={e => { e.stopPropagation(); requestDeleteEvent(ev) }}
                           aria-label="Delete event"
                           style={{ marginTop: -2 }}
                         >
@@ -662,9 +751,25 @@ export default function CalendarView({
       {detailEvent && (
         <EventDetailSheet
           event={detailEvent}
+          labels={labels}
           onClose={() => setDetailEvent(null)}
           onUpdate={ev => { onUpdateEvent(ev); setDetailEvent(ev) }}
-          onDelete={deleteEvent}
+          onRequestDelete={requestDeleteEvent}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmSheet
+          title={confirmAction.type === 'deleteEvent' ? labels.deleteEventTitle : labels.deleteDeadlineTitle}
+          message={
+            confirmAction.type === 'deleteEvent'
+              ? `"${confirmAction.eventName}" will be permanently removed from your calendar.`
+              : `"${confirmAction.deadlineText}" will be removed from your deadlines.`
+          }
+          confirmLabel="Delete"
+          danger
+          onConfirm={handleConfirmAction}
+          onCancel={() => setConfirmAction(null)}
         />
       )}
     </div>

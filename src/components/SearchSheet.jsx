@@ -23,7 +23,7 @@ export default function SearchSheet({
   events,
   upcoming,
   dailyNotes,
-  onGoToTab,
+  onNavigate,
   onOpenJournal,
   plainLanguage,
   todayKey,
@@ -40,6 +40,7 @@ export default function SearchSheet({
         items.push({
           type: 'task',
           tab: 'day',
+          taskId: t.id,
           label: t.text,
           sub: getTaskSearchSubtitle(t, todayKey),
         })
@@ -48,31 +49,85 @@ export default function SearchSheet({
 
     sparks.forEach(s => {
       if (s.text?.toLowerCase().includes(query)) {
-        items.push({ type: 'spark', tab: 'day', label: s.text, sub: plainLanguage ? 'Inbox' : 'Spark' })
+        items.push({
+          type: 'spark',
+          tab: 'day',
+          sparkId: s.id,
+          label: s.text,
+          sub: plainLanguage ? 'Inbox' : 'Spark',
+        })
       }
     })
 
     ;(upcoming || []).forEach(u => {
       if (!u.done && u.text?.toLowerCase().includes(query)) {
-        items.push({ type: 'upcoming', tab: 'calendar', label: u.text, sub: `Due · ${u.dueDate}` })
+        items.push({
+          type: 'upcoming',
+          tab: 'calendar',
+          upcomingId: u.id,
+          calendarDateKey: u.dueDate,
+          label: u.text,
+          sub: `Due · ${u.dueDate}`,
+        })
       }
     })
 
     projects.forEach(p => {
       if (p.archived) return
-      if (p.name?.toLowerCase().includes(query) || p.tag?.toLowerCase().includes(query)) {
-        items.push({ type: 'project', tab: 'projects', label: p.name, sub: p.tag || 'Project' })
+      if (p.name?.toLowerCase().includes(query) || p.tag?.toLowerCase().includes(query) || p.description?.toLowerCase().includes(query)) {
+        items.push({ type: 'project', tab: 'projects', projectId: p.id, label: p.name, sub: p.tag || 'Project' })
       }
-      if (p.scratchpad?.toLowerCase().includes(query)) {
+      ;(p.notebook || []).forEach(page => {
+        if (page.content?.toLowerCase().includes(query) || page.title?.toLowerCase().includes(query)) {
+          const snippet = (page.content || '').slice(
+            Math.max(0, (page.content || '').toLowerCase().indexOf(query) - 20),
+            Math.max(0, (page.content || '').toLowerCase().indexOf(query) + 60)
+          )
+          items.push({
+            type: 'notes',
+            tab: 'projects',
+            projectId: p.id,
+            openNotes: true,
+            label: `${p.name} · ${page.title || 'Notes'}`,
+            sub: `Notes: …${snippet}…`,
+          })
+        }
+      })
+      if (p.scratchpad?.toLowerCase().includes(query) && !(p.notebook || []).some(pg => pg.content?.toLowerCase().includes(query))) {
         const snippet = p.scratchpad.slice(
           Math.max(0, p.scratchpad.toLowerCase().indexOf(query) - 20),
-          Math.max(0, p.scratchpad.toLowerCase().indexOf(query) + 60
-        ))
-        items.push({ type: 'scratch', tab: 'projects', label: p.name, sub: `Notes: …${snippet}…` })
+          Math.max(0, p.scratchpad.toLowerCase().indexOf(query) + 60)
+        )
+        items.push({
+          type: 'notes',
+          tab: 'projects',
+          projectId: p.id,
+          openNotes: true,
+          label: p.name,
+          sub: `Notes: …${snippet}…`,
+        })
       }
       ;(p.tasks || []).forEach(t => {
         if (t.text?.toLowerCase().includes(query)) {
-          items.push({ type: 'project-task', tab: 'projects', label: t.text, sub: `${p.name} · Task` })
+          items.push({
+            type: 'project-task',
+            tab: 'projects',
+            projectId: p.id,
+            taskId: t.id,
+            label: t.text,
+            sub: `${p.name} · Task`,
+          })
+        }
+      })
+      ;(p.ideas || []).forEach(idea => {
+        if (idea.text?.toLowerCase().includes(query)) {
+          items.push({
+            type: 'project-idea',
+            tab: 'projects',
+            projectId: p.id,
+            label: idea.text,
+            sub: `${p.name} · ${plainLanguage ? 'Thought' : 'Spark'}`,
+          })
         }
       })
     })
@@ -80,7 +135,14 @@ export default function SearchSheet({
     events.forEach(e => {
       if (e.name?.toLowerCase().includes(query) || e.notes?.toLowerCase().includes(query)) {
         const when = e.dateKey || (e.repeatDays ? 'Repeating' : '')
-        items.push({ type: 'event', tab: 'calendar', label: e.name, sub: `Calendar · ${when}` })
+        items.push({
+          type: 'event',
+          tab: 'calendar',
+          eventId: e.id,
+          calendarDateKey: e.dateKey || todayKey,
+          label: e.name,
+          sub: `Calendar · ${when}`,
+        })
       }
     })
 
@@ -90,6 +152,7 @@ export default function SearchSheet({
           type: 'note',
           tab: 'day',
           dateKey,
+          expandDayNote: dateKey === todayKey,
           label: note.slice(0, 80) + (note.length > 80 ? '…' : ''),
           sub: `Day note · ${dateKey}`,
         })
@@ -100,11 +163,21 @@ export default function SearchSheet({
   }, [query, tasks, sparks, projects, events, upcoming, dailyNotes, plainLanguage, todayKey])
 
   function handleSelect(r) {
-    if (r.type === 'note' && onOpenJournal) {
+    if (r.type === 'note' && r.dateKey !== todayKey && onOpenJournal) {
       onOpenJournal(r.dateKey)
       return
     }
-    onGoToTab(r.tab)
+    onNavigate({
+      tab: r.tab,
+      projectId: r.projectId,
+      openNotes: r.openNotes,
+      taskId: r.taskId,
+      sparkId: r.sparkId,
+      eventId: r.eventId,
+      calendarDateKey: r.calendarDateKey,
+      upcomingId: r.upcomingId,
+      expandDayNote: r.expandDayNote,
+    })
     onClose()
   }
 

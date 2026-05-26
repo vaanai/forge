@@ -22,7 +22,12 @@ export default function JournalSheet({ dailyNotes, onClose, onSaveDayNote, highl
   const [editDraft, setEditDraft] = useState('')
 
   useEffect(() => {
-    if (highlightDateKey) setExpandedKey(highlightDateKey)
+    if (highlightDateKey) {
+      setExpandedKey(highlightDateKey)
+      requestAnimationFrame(() => {
+        document.getElementById('journal-highlight')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    }
   }, [highlightDateKey])
 
   function startEdit(dateKey, text) {

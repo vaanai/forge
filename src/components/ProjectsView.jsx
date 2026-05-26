@@ -1,12 +1,12 @@
-import { useState } from 'react'
-import { uid } from '../utils/storage.js'
+import { useState, useEffect } from 'react'
 import { getLabels } from '../utils/copy.js'
+import { normalizeProject, createProject, getProjectMetrics, formatDueLabel } from '../utils/projects.js'
 import { Icons } from './Icons.jsx'
 import ProjectDetailView from './ProjectDetailView.jsx'
 
 function ProjectListCard({ project, onOpen }) {
-  const doneCount = (project.tasks || []).filter(t => t.done).length
-  const totalCount = (project.tasks || []).length
+  const metrics = getProjectMetrics(project)
+  const dueLabel = formatDueLabel(project.dueDate)
 
   return (
     <button type="button" className={`project-list-card ${project.pinned ? 'project-list-card--pinned' : ''}`} onClick={() => onOpen(project.id)}>
@@ -16,9 +16,17 @@ function ProjectListCard({ project, onOpen }) {
           {project.name}
         </div>
         <div className="project-list-card__meta">
-          {totalCount === 0 ? 'No tasks' : `${doneCount} / ${totalCount} done`}
+          {metrics.total === 0 ? 'No tasks' : `${metrics.done} / ${metrics.total} done · ${metrics.progress}%`}
           {project.tag ? <span className="tag tag--gold" style={{ marginLeft: 8 }}>{project.tag}</span> : null}
+          {dueLabel && (
+            <span className={`tag ${metrics.projectOverdue ? 'tag--danger' : 'tag--muted'}`} style={{ marginLeft: 8 }}>
+              {dueLabel}
+            </span>
+          )}
         </div>
+        {project.description?.trim() && (
+          <p className="project-list-card__desc">{project.description.trim().slice(0, 60)}{project.description.length > 60 ? '…' : ''}</p>
+        )}
       </div>
       <Icons.ChevronRight size={16} />
     </button>
@@ -28,12 +36,19 @@ function ProjectListCard({ project, onOpen }) {
 function NewProjectSheet({ onClose, onCreate }) {
   const [name, setName] = useState('')
   const [tag, setTag] = useState('')
+  const [description, setDescription] = useState('')
+  const [dueDate, setDueDate] = useState('')
 
   function submit(e) {
     e.preventDefault()
     const n = name.trim()
     if (!n) return
-    onCreate({ id: uid(), name: n, tag: tag.trim(), tasks: [], scratchpad: '', pinned: false, archived: false })
+    const project = createProject({ name: n, tag })
+    onCreate({
+      ...project,
+      description: description.trim(),
+      dueDate: dueDate || null,
+    })
     onClose()
   }
 
@@ -45,6 +60,16 @@ function NewProjectSheet({ onClose, onCreate }) {
         <form onSubmit={submit}>
           <input className="sheet-input" placeholder="Project name (e.g. Spice Rack, Portfolio Site)" value={name} onChange={e => setName(e.target.value)} autoFocus />
           <input className="sheet-input" placeholder="Label / tag (optional)" value={tag} onChange={e => setTag(e.target.value)} style={{ marginTop: 10 }} />
+          <textarea
+            className="sheet-input sheet-textarea"
+            placeholder="What are you building? (optional)"
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            rows={2}
+            style={{ marginTop: 10, resize: 'vertical' }}
+          />
+          <label className="sheet-field-label">Deadline (optional)</label>
+          <input type="date" className="sheet-input" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ marginTop: 6 }} />
           <button className="sheet-btn" type="submit">Create Project</button>
         </form>
       </div>
@@ -52,38 +77,60 @@ function NewProjectSheet({ onClose, onCreate }) {
   )
 }
 
-export default function ProjectsView({ projects = [], onUpdateProjects, onSendToToday, plainLanguage = false }) {
+export default function ProjectsView({
+  projects = [],
+  onUpdateProjects,
+  onSendToToday,
+  plainLanguage = false,
+  navTarget = null,
+  onNavConsumed,
+}) {
   const [showSheet, setShowSheet] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [openProjectId, setOpenProjectId] = useState(null)
+  const [openNotes, setOpenNotes] = useState(false)
+  const [highlightTaskId, setHighlightTaskId] = useState(null)
   const labels = getLabels(plainLanguage)
 
-  const active = projects.filter(p => !p.archived)
-  const archived = projects.filter(p => p.archived)
+  const normalized = projects.map(normalizeProject)
+  const active = normalized.filter(p => !p.archived)
+  const archived = normalized.filter(p => p.archived)
   const sortedActive = [...active].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0))
-  const openProject = projects.find(p => p.id === openProjectId)
+  const openProject = normalized.find(p => p.id === openProjectId)
 
-  function createProject(p) {
-    onUpdateProjects([p, ...projects])
+  useEffect(() => {
+    if (!navTarget?.projectId) return
+    setOpenProjectId(navTarget.projectId)
+    setOpenNotes(!!navTarget.openNotes)
+    setHighlightTaskId(navTarget.taskId || null)
+    onNavConsumed?.()
+  }, [navTarget, onNavConsumed])
+
+  function createProjectEntry(p) {
+    onUpdateProjects([normalizeProject(p), ...projects.map(normalizeProject)])
   }
 
   function updateProject(updated) {
-    onUpdateProjects(projects.map(p => p.id === updated.id ? updated : p))
+    onUpdateProjects(projects.map(p => p.id === updated.id ? normalizeProject(updated) : normalizeProject(p)))
   }
 
   function deleteProject(id) {
     onUpdateProjects(projects.filter(p => p.id !== id))
     setOpenProjectId(null)
+    setOpenNotes(false)
   }
 
   if (openProject) {
     return (
       <ProjectDetailView
         project={openProject}
-        onBack={() => setOpenProjectId(null)}
+        onBack={() => { setOpenProjectId(null); setOpenNotes(false) }}
         onUpdate={updateProject}
         onDelete={deleteProject}
         onSendToToday={onSendToToday}
+        plainLanguage={plainLanguage}
+        initialOpenNotes={openNotes}
+        highlightTaskId={highlightTaskId}
       />
     )
   }
@@ -127,7 +174,7 @@ export default function ProjectsView({ projects = [], onUpdateProjects, onSendTo
         <Icons.Plus size={18} /> New project
       </button>
 
-      {showSheet && <NewProjectSheet onClose={() => setShowSheet(false)} onCreate={createProject} />}
+      {showSheet && <NewProjectSheet onClose={() => setShowSheet(false)} onCreate={createProjectEntry} />}
     </div>
   )
 }

@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { uid, getTomorrowKey, toDateKey } from '../utils/storage.js'
 import { getLabels } from '../utils/copy.js'
-import { upcomingOnDay } from '../utils/upcoming.js'
+import { normalizeProject } from '../utils/projects.js'
+import { upcomingOnDay, allDueOnDay } from '../utils/deadlines.js'
 import {
   isRecurringTask,
   isTaskDoneOnDay,
@@ -19,10 +20,10 @@ import ConfirmSheet from './ConfirmSheet.jsx'
 import { getSnoozedTasks, formatRitualDays, formatShortDate } from '../utils/dayPlanner.js'
 
 // ── Task Item ──────────────────────────────────────────────
-function TaskItem({ task, onToggle, onDelete, onDefer, doneToday }) {
+function TaskItem({ task, onToggle, onDelete, onDefer, doneToday, highlighted }) {
   const completed = doneToday ?? task.done
   return (
-    <div className={`task-item animate-in ${completed ? 'completed' : ''}`}>
+    <div id={`task-${task.id}`} className={`task-item animate-in ${completed ? 'completed' : ''} ${highlighted ? 'search-highlight' : ''}`}>
       <button
         className={`task-check ${completed ? 'checked' : ''}`}
         onClick={() => onToggle(task.id)}
@@ -70,9 +71,9 @@ function TaskItem({ task, onToggle, onDelete, onDefer, doneToday }) {
 }
 
 // ── Spark Item ─────────────────────────────────────────────
-function SparkItem({ spark, onPromote, onRoute, onDelete }) {
+function SparkItem({ spark, onPromote, onRoute, onDelete, highlighted }) {
   return (
-    <div className="task-item animate-in">
+    <div id={`spark-${spark.id}`} className={`task-item animate-in ${highlighted ? 'search-highlight' : ''}`}>
       <button
         className="task-check"
         onClick={() => onPromote(spark.id)}
@@ -117,14 +118,14 @@ function FileSparkSheet({ spark, projects, onClose, onFile }) {
           "{spark.text}"
         </div>
         
-        {projects.length === 0 ? (
+        {projects.filter(p => !p.archived).length === 0 ? (
           <div style={{ padding: '24px 0', textAlign: 'center' }}>
             <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: 8 }}>No active projects found.</p>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Go to the Projects tab to create a laboratory.</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Go to the Projects tab to create a workspace.</p>
           </div>
         ) : (
           <div className="sheet-projects-list">
-            {projects.map(project => (
+            {projects.filter(p => !p.archived).map(project => (
               <div key={project.id} className="sheet-project-row">
                 <div style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
                   <div className="sheet-project-name">{project.name}</div>
@@ -136,6 +137,12 @@ function FileSparkSheet({ spark, projects, onClose, onFile }) {
                     onClick={() => onFile(project.id, 'task')}
                   >
                     As Task
+                  </button>
+                  <button 
+                    className="sheet-project-action-btn secondary"
+                    onClick={() => onFile(project.id, 'idea')}
+                  >
+                    As Idea
                   </button>
                   <button 
                     className="sheet-project-action-btn secondary"
@@ -154,12 +161,13 @@ function FileSparkSheet({ spark, projects, onClose, onFile }) {
   )
 }
 
-// ── New Ritual Bottom Sheet ────────────────────────────────
-function NewRitualSheet({ onClose, onCreate }) {
-  const [name, setName] = useState('')
-  const [notifyEnabled, setNotifyEnabled] = useState(false)
-  const [time, setTime] = useState(null)
-  const [days, setDays] = useState([1, 2, 3, 4, 5]) // Mon-Fri default
+// ── New / Edit Ritual Bottom Sheet ─────────────────────────
+function RitualSheet({ onClose, onCreate, onUpdate, onDelete, ritual = null, labels }) {
+  const isEdit = !!ritual
+  const [name, setName] = useState(ritual?.name || '')
+  const [notifyEnabled, setNotifyEnabled] = useState(!!ritual?.reminderTime)
+  const [time, setTime] = useState(ritual?.reminderTime || null)
+  const [days, setDays] = useState(ritual?.days || [1, 2, 3, 4, 5])
   
   const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -173,12 +181,14 @@ function NewRitualSheet({ onClose, onCreate }) {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed || days.length === 0) return
-    onCreate({
-      id: 'rit_' + uid(),
+    const payload = {
+      ...(ritual || { id: 'rit_' + uid() }),
       name: trimmed,
       days: days.sort(),
       reminderTime: notifyEnabled && time ? time : null,
-    })
+    }
+    if (isEdit && onUpdate) onUpdate(payload)
+    else onCreate(payload)
     onClose()
   }
 
@@ -186,8 +196,10 @@ function NewRitualSheet({ onClose, onCreate }) {
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet__handle" />
-        <h2 className="sheet__title">Add Daily Ritual</h2>
-        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: 14 }}>Configure habits that automatically reset daily.</p>
+        <h2 className="sheet__title">{isEdit ? 'Edit Habit' : 'Add Daily Ritual'}</h2>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: 14 }}>
+          {isEdit ? 'Update this habit\'s schedule and reminders.' : 'Configure habits that automatically reset daily.'}
+        </p>
         
         <form onSubmit={submit}>
           <input
@@ -235,123 +247,128 @@ function NewRitualSheet({ onClose, onCreate }) {
           />
 
           <button className="sheet-btn" type="submit" style={{ marginTop: 18, background: 'var(--accent-gold)' }}>
-            Schedule Ritual
+            {isEdit ? 'Save changes' : 'Schedule Ritual'}
           </button>
+          {isEdit && onDelete && (
+            <button
+              type="button"
+              className="sheet-btn secondary-btn"
+              style={{ marginTop: 10, color: 'var(--danger, #c0392b)' }}
+              onClick={() => onDelete(ritual.id)}
+            >
+              {labels.deleteHabit}
+            </button>
+          )}
         </form>
       </div>
     </div>
   )
 }
 
-// ── AlloyCard Component ─────────────────────────────────────
-function AlloyCard({ alloy, rituals, ritualLog, todayKey, onToggleRitual, onOpenWeldFlow, onDeleteAlloy, temperingClass }) {
-  const [open, setOpen] = useState(false)
+// ── AlloyCard Component (routine-first hierarchy) ───────────
+function AlloyCard({ alloy, rituals, ritualLog, todayKey, onToggleRitual, onOpenWeldFlow, onRequestDeleteAlloy, onEditAlloy, temperingClass, labels }) {
   const alloyRituals = rituals.filter(r => alloy.ritualIds.includes(r.id))
   const completedCount = alloyRituals.filter(r => ritualLog[todayKey]?.[r.id]).length
   const totalCount = alloyRituals.length
   const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+  const nextRitual = alloyRituals.find(r => !ritualLog[todayKey]?.[r.id])
+  const isComplete = progressPct === 100
 
   return (
-    <div className={`alloy-card ${temperingClass}`} style={{ transition: 'all 0.3s ease' }}>
-      <div className="alloy-card__header" onClick={() => setOpen(!open)}>
+    <div className={`alloy-card alloy-card--prominent ${temperingClass} ${isComplete ? 'alloy-card--complete' : ''}`}>
+      <div className="alloy-card__top">
         <div className="alloy-card__title-group">
           <div className="alloy-card__title">
-            <span style={{ fontWeight: 600 }}>🔗 {alloy.name}</span>
+            <span className="alloy-card__name">{alloy.name}</span>
             {alloy.anchorType !== 'none' && (
-              <span className="tag tag--gold" style={{ fontSize: '9px', padding: '1px 6px', marginLeft: '6px' }}>
-                ⚓ {alloy.anchorType === 'time' ? `At ${alloy.anchorValue}` : `After ${alloy.anchorValue}`}
+              <span className="tag tag--gold alloy-card__anchor">
+                {alloy.anchorType === 'time' ? `At ${alloy.anchorValue}` : `After "${alloy.anchorValue}"`}
               </span>
             )}
           </div>
           <div className="alloy-card__meta">
-            <span>{completedCount} / {totalCount} Completed</span>
-            <span>•</span>
-            <span style={{ color: progressPct === 100 ? 'var(--success)' : 'var(--accent-gold)', fontWeight: 600 }}>
-              {progressPct}% Forged
-            </span>
+            <span>{completedCount} / {totalCount}</span>
+            {!isComplete && nextRitual && (
+              <>
+                <span>·</span>
+                <span className="alloy-card__next">Next: {nextRitual.name}</span>
+              </>
+            )}
+            {isComplete && <span className="alloy-card__done-badge">Complete</span>}
           </div>
         </div>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }} onClick={e => e.stopPropagation()}>
-          {progressPct < 100 && (
-            <button
-              onClick={() => onOpenWeldFlow(alloy)}
-              style={{
-                background: 'var(--accent-gold-bg)',
-                border: 'none',
-                color: 'var(--accent-gold)',
-                borderRadius: '50%',
-                width: '28px',
-                height: '28px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'transform 0.15s ease'
-              }}
-              className="icon-btn-active"
-              title="Weld Flow Mode"
-            >
-              <Icons.Play size={13} />
-            </button>
-          )}
-          
-          <button
-            onClick={() => {
-              if (confirm('Delete this routine?')) {
-                onDeleteAlloy(alloy.id)
-              }
-            }}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'var(--text-muted)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-            title="Delete Routine"
-          >
-            <Icons.X size={13} />
-          </button>
 
-          <span className={`alloy-card__chevron ${open ? 'open' : ''}`} style={{ display: 'flex', alignItems: 'center' }}>
-            <Icons.ChevronDown />
-          </span>
-        </div>
+        {!isComplete && (
+          <button
+            type="button"
+            className="alloy-start-btn"
+            onClick={() => onOpenWeldFlow(alloy)}
+            aria-label={`Start ${alloy.name}`}
+          >
+            <Icons.Play size={12} />
+            {labels.weld}
+          </button>
+        )}
       </div>
 
-      <div className={`alloy-card__body ${open ? 'open' : ''}`}>
-        <div className="alloy-card__body-inner">
-          {alloyRituals.map(rit => {
-            const done = ritualLog[todayKey]?.[rit.id] || false
-            return (
-              <div
-                key={rit.id}
-                className={`alloy-inline-item ${done ? 'done' : ''}`}
-                onClick={() => onToggleRitual(rit.id)}
-                style={{ cursor: 'pointer' }}
-              >
-                <span className="alloy-inline-item__text">{rit.name}</span>
-                <button
-                  className={`task-check ${done ? 'checked' : ''}`}
-                  style={{ width: '18px', height: '18px' }}
-                  aria-label="Toggle ritual done"
-                >
-                  <Icons.Check size={10} />
-                </button>
-              </div>
-            )
-          })}
-        </div>
+      <div className="alloy-card__progress-track">
+        <div className="alloy-card__progress-fill" style={{ width: `${progressPct}%` }} />
+      </div>
+
+      <div className="alloy-card__steps">
+        {alloyRituals.map(rit => {
+          const done = ritualLog[todayKey]?.[rit.id] || false
+          return (
+            <button
+              key={rit.id}
+              type="button"
+              className={`alloy-step-chip ${done ? 'done' : ''}`}
+              onClick={() => onToggleRitual(rit.id)}
+            >
+              <span className={`alloy-step-chip__check ${done ? 'checked' : ''}`}>
+                {done && <Icons.Check size={8} />}
+              </span>
+              <span>{rit.name}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="alloy-card__footer">
+        <button type="button" className="alloy-card__action" onClick={() => onEditAlloy(alloy)} aria-label="Edit routine">
+          <Icons.Edit size={12} /> Edit
+        </button>
+        <button
+          type="button"
+          className="alloy-card__action alloy-card__action--muted"
+          onClick={() => onRequestDeleteAlloy(alloy)}
+          aria-label="Delete routine"
+        >
+          <Icons.Trash size={12} />
+        </button>
       </div>
     </div>
   )
 }
 
+function StandaloneHabitChip({ ritual, done, onToggle, onEdit, labels }) {
+  return (
+    <div className={`habit-chip ${done ? 'done' : ''}`}>
+      <button type="button" className="habit-chip__main" onClick={() => onToggle(ritual.id)}>
+        <span className={`habit-chip__check ${done ? 'checked' : ''}`}>
+          {done && <Icons.Check size={8} />}
+        </span>
+        <span className="habit-chip__name">{ritual.name}</span>
+      </button>
+      <button type="button" className="habit-chip__edit" onClick={() => onEdit(ritual)} aria-label="Edit habit">
+        <Icons.Edit size={10} />
+      </button>
+    </div>
+  )
+}
+
 // ── WeldFlowDrawer Component ─────────────────────────────────
-function WeldFlowDrawer({ alloy, rituals, ritualLog, todayKey, onToggleRitual, onClose }) {
+function WeldFlowDrawer({ alloy, rituals, ritualLog, todayKey, onToggleRitual, onClose, labels }) {
   const alloyRituals = rituals.filter(r => alloy.ritualIds.includes(r.id))
   const uncheckedRituals = alloyRituals.filter(r => !ritualLog[todayKey]?.[r.id])
   const currentRitual = uncheckedRituals[0]
@@ -375,7 +392,7 @@ function WeldFlowDrawer({ alloy, rituals, ritualLog, todayKey, onToggleRitual, o
         <div className="weld-drawer__header">
           <div>
             <span style={{ font: '600 11px var(--font-sans)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Weld Flow Mode
+              {labels.weldFlowTitle}
             </span>
             <h2 className="sheet__title" style={{ margin: 0, fontSize: '18px' }}>🔗 {alloy.name}</h2>
           </div>
@@ -385,7 +402,7 @@ function WeldFlowDrawer({ alloy, rituals, ritualLog, todayKey, onToggleRitual, o
         <div className="weld-drawer__progress-container">
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
             <span>{completedCount} / {totalCount} Completed</span>
-            <span>{progressPct}% Forged</span>
+            <span>{progressPct}% {labels.weldForgedPct}</span>
           </div>
           <div className="weld-drawer__progress-bar">
             <div className="weld-drawer__progress-fill" style={{ width: `${progressPct}%` }} />
@@ -402,20 +419,20 @@ function WeldFlowDrawer({ alloy, rituals, ritualLog, todayKey, onToggleRitual, o
                 <Icons.Check />
               </button>
               <p style={{ marginTop: '24px', font: '500 12px var(--font-sans)', color: 'var(--text-muted)' }}>
-                Tap the circle to weld this link
+                {labels.weldFlowTap}
               </p>
             </>
           ) : (
             <div className="weld-drawer__success">
               <div className="weld-drawer__success-icon">🔥</div>
               <h3 style={{ font: '700 22px var(--font-serif)', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                Alloy Fully Ignited!
+                {labels.weldFlowComplete}
               </h3>
               <p style={{ font: '400 14px var(--font-sans)', color: 'var(--text-muted)', marginBottom: '24px' }}>
-                You have forged all elements of this routine today. Excellent work.
+                {labels.weldFlowCompleteDesc}
               </p>
               <button className="sheet-btn" onClick={onClose} style={{ background: 'var(--accent-gold)', marginTop: 0 }}>
-                Return to Workspace
+                {labels.weldFlowReturn}
               </button>
             </div>
           )}
@@ -425,16 +442,23 @@ function WeldFlowDrawer({ alloy, rituals, ritualLog, todayKey, onToggleRitual, o
   )
 }
 
-// ── NewAlloySheet Component ──────────────────────────────────
-function NewAlloySheet({ rituals, onClose, onCreate }) {
-  const [name, setName] = useState('')
-  const [days, setDays] = useState([1, 2, 3, 4, 5])
-  const [selectedRitualIds, setSelectedRitualIds] = useState([])
-  
-  const [anchorType, setAnchorType] = useState('none')
-  const [anchorValue, setAnchorValue] = useState('')
+// ── New / Edit Alloy Sheet ───────────────────────────────────
+function AlloySheet({ rituals, alloys = [], onClose, onCreate, onUpdate, alloy = null }) {
+  const isEdit = !!alloy
+  const [name, setName] = useState(alloy?.name || '')
+  const [days, setDays] = useState(alloy?.days || [1, 2, 3, 4, 5])
+  const [selectedRitualIds, setSelectedRitualIds] = useState(alloy?.ritualIds || [])
+  const [anchorType, setAnchorType] = useState(alloy?.anchorType || 'none')
+  const [anchorValue, setAnchorValue] = useState(alloy?.anchorValue || '')
   
   const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+  const weldedElsewhere = (ritId) =>
+    alloys.some(a => a.id !== alloy?.id && a.ritualIds.includes(ritId))
+
+  const availableRituals = rituals.filter(r =>
+    selectedRitualIds.includes(r.id) || !weldedElsewhere(r.id)
+  )
 
   function toggleDay(dayIdx) {
     setDays(prev => 
@@ -453,14 +477,16 @@ function NewAlloySheet({ rituals, onClose, onCreate }) {
     const trimmed = name.trim()
     if (!trimmed || days.length === 0 || selectedRitualIds.length === 0) return
     
-    onCreate({
-      id: 'alloy_' + uid(),
+    const payload = {
+      ...(alloy || { id: 'alloy_' + uid() }),
       name: trimmed,
       days: days.sort(),
       ritualIds: selectedRitualIds,
       anchorType,
       anchorValue: anchorType !== 'none' ? anchorValue.trim() : null
-    })
+    }
+    if (isEdit && onUpdate) onUpdate(payload)
+    else onCreate(payload)
     onClose()
   }
 
@@ -468,9 +494,11 @@ function NewAlloySheet({ rituals, onClose, onCreate }) {
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={e => e.stopPropagation()} style={{ maxHeight: '85vh', overflowY: 'auto' }}>
         <div className="sheet__handle" />
-        <h2 className="sheet__title">Add Alloy Routine</h2>
+        <h2 className="sheet__title">{isEdit ? 'Edit Routine' : 'Add Alloy Routine'}</h2>
         <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: 14 }}>
-          Weld multiple habits into a sequential, trigger-anchored routine.
+          {isEdit
+            ? 'Update your stacked habits and trigger anchor.'
+            : 'Weld multiple habits into a sequential, trigger-anchored routine.'}
         </p>
         
         <form onSubmit={submit}>
@@ -513,49 +541,54 @@ function NewAlloySheet({ rituals, onClose, onCreate }) {
 
           <div style={{ marginTop: 14 }}>
             <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-              Select Standalone Habits to Weld
+              Habits in this routine
             </label>
-            {rituals.length === 0 ? (
+            {availableRituals.length === 0 ? (
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                No active habits found. Create some standalone habits first!
+                No habits available. Create standalone habits first, then weld them here.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto', padding: '6px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)' }}>
-                {rituals.map(rit => {
-                  const selected = selectedRitualIds.includes(rit.id)
-                  return (
-                    <div
-                      key={rit.id}
-                      onClick={() => toggleRitual(rit.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '8px 10px',
-                        background: selected ? 'var(--accent-gold-bg)' : 'var(--bg-surface)',
-                        border: selected ? '1px solid var(--accent-gold)' : '1px solid var(--border)',
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <span style={{ fontSize: '13px', fontWeight: 500, color: selected ? 'var(--accent-gold)' : 'var(--text-primary)' }}>{rit.name}</span>
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => {}}
-                        style={{ accentColor: 'var(--accent-gold)' }}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+              <>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: 8 }}>
+                  Selected habits move into this routine and won&apos;t appear separately on Today.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '150px', overflowY: 'auto', padding: '6px', background: 'var(--bg-base)', borderRadius: 'var(--radius-sm)' }}>
+                  {availableRituals.map(rit => {
+                    const selected = selectedRitualIds.includes(rit.id)
+                    return (
+                      <div
+                        key={rit.id}
+                        onClick={() => toggleRitual(rit.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '8px 10px',
+                          background: selected ? 'var(--accent-gold-bg)' : 'var(--bg-surface)',
+                          border: selected ? '1px solid var(--accent-gold)' : '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span style={{ fontSize: '13px', fontWeight: 500, color: selected ? 'var(--accent-gold)' : 'var(--text-primary)' }}>{rit.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => {}}
+                          style={{ accentColor: 'var(--accent-gold)' }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
           </div>
 
           <div style={{ marginTop: 14 }}>
             <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-              Weld Trigger Anchor
+              Habit stack trigger
             </label>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
               {['none', 'time', 'task'].map(type => (
@@ -610,7 +643,7 @@ function NewAlloySheet({ rituals, onClose, onCreate }) {
             disabled={selectedRitualIds.length === 0}
             style={{ marginTop: 18, background: 'var(--accent-gold)', opacity: selectedRitualIds.length === 0 ? 0.5 : 1 }}
           >
-            Forge Alloy Routine
+            {isEdit ? 'Save routine' : 'Forge Alloy Routine'}
           </button>
         </form>
       </div>
@@ -672,6 +705,7 @@ export default function DayView({
   events = [], 
   rituals = [], 
   onCreateRitual,
+  onUpdateRitual,
   onDeleteRitual,
   ritualLog = {}, 
   setRitualLog, 
@@ -683,6 +717,7 @@ export default function DayView({
   alloys = [],
   setAlloys,
   onCreateAlloy,
+  onUpdateAlloy,
   onDeleteAlloy,
   plainLanguage = false,
   dayNote = '',
@@ -691,17 +726,25 @@ export default function DayView({
   upcoming = [],
   onCompleteUpcoming,
   onPromoteUpcoming,
+  onOpenProject,
+  onCompleteProjectTask,
+  navTarget = null,
+  onNavConsumed,
 }) {
   const labels = getLabels(plainLanguage)
 
   const [routingSpark, setRoutingSpark] = useState(null)
   const [showRitualSheet, setShowRitualSheet] = useState(false)
+  const [editingRitual, setEditingRitual] = useState(null)
   const [weldFlowAlloy, setWeldFlowAlloy] = useState(null)
   const [showAlloySheet, setShowAlloySheet] = useState(false)
+  const [editingAlloy, setEditingAlloy] = useState(null)
   const [stackingToast, setStackingToast] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
   const [ritualToast, setRitualToast] = useState(null)
+  const [fileToast, setFileToast] = useState(null)
   const [dayNoteExpanded, setDayNoteExpanded] = useState(false)
+  const [highlightId, setHighlightId] = useState(null)
   
   const [input, setInput] = useState('')
   const [sparkInput, setSparkInput] = useState('')
@@ -715,6 +758,28 @@ export default function DayView({
   useEffect(() => {
     setDayNoteDraft(dayNote)
   }, [dayNote, todayKey])
+
+  useEffect(() => {
+    if (dayNoteDraft === dayNote) return
+    const timer = setTimeout(() => {
+      if (onSaveDayNote) onSaveDayNote(todayKey, dayNoteDraft)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [dayNoteDraft, todayKey, dayNote, onSaveDayNote])
+
+  useEffect(() => {
+    if (!navTarget || navTarget.tab !== 'day') return
+    const id = navTarget.taskId ? `task-${navTarget.taskId}` : navTarget.sparkId ? `spark-${navTarget.sparkId}` : null
+    if (id) {
+      setHighlightId(id)
+      requestAnimationFrame(() => {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+      setTimeout(() => setHighlightId(null), 2500)
+    }
+    if (navTarget.expandDayNote) setDayNoteExpanded(true)
+    onNavConsumed?.()
+  }, [navTarget, onNavConsumed])
 
   const activeTasks = tasks.filter(t => isTaskVisibleInActiveList(t, todayKey))
   const completedTasks = tasks.filter(t => isTaskVisibleInCompletedList(t, todayKey))
@@ -742,7 +807,8 @@ export default function DayView({
   
   const progressPercent = totalTodayItems > 0 ? Math.round((completedTodayItems / totalTodayItems) * 100) : 0
 
-  const todayDue = upcomingOnDay(upcoming, todayKey)
+  const todayDue = allDueOnDay(upcoming, projects, todayKey, todayKey)
+  const hasAnyTaskSections = activeTasks.length > 0 || snoozedTasks.length > 0 || completedTasks.length > 0
 
   // Filter today's events for the agenda feed
   const todayEvents = events
@@ -845,11 +911,34 @@ export default function DayView({
     setConfirmAction({ type: 'defer', taskId: id, taskText: task?.text || 'this task' })
   }
 
+  function saveDayNote() {
+    if (onSaveDayNote) onSaveDayNote(todayKey, dayNoteDraft)
+  }
+
+  function requestDeleteRitual(id) {
+    const rit = rituals.find(r => r.id === id)
+    setConfirmAction({ type: 'deleteRitual', ritualId: id, ritualName: rit?.name || 'this habit' })
+  }
+
+  function requestDeleteAlloy(alloy) {
+    setConfirmAction({ type: 'deleteAlloy', alloyId: alloy.id, alloyName: alloy.name })
+  }
+
   function handleConfirmAction() {
     if (!confirmAction) return
     if (confirmAction.type === 'defer') deferTask(confirmAction.taskId)
-    else deleteTask(confirmAction.taskId)
+    else if (confirmAction.type === 'deleteRitual') {
+      deleteRitual(confirmAction.ritualId)
+      setShowRitualSheet(false)
+      setEditingRitual(null)
+    } else if (confirmAction.type === 'deleteAlloy') {
+      onDeleteAlloy?.(confirmAction.alloyId)
+    } else deleteTask(confirmAction.taskId)
     setConfirmAction(null)
+  }
+
+  function formatSparkToast(template, projectName) {
+    return template.replace('{project}', projectName)
   }
 
   function deferTask(id) {
@@ -883,28 +972,62 @@ export default function DayView({
   function handleFileSpark(projectId, type) {
     if (!routingSpark) return
 
+    const projectName = projects.find(p => p.id === projectId)?.name || 'project'
+    let toastMsg = formatSparkToast(labels.sparkSavedNotes, projectName)
+
     const updatedProjects = projects.map(proj => {
-      if (proj.id === projectId) {
-        if (type === 'task') {
-          return {
-            ...proj,
-            tasks: [{ id: uid(), text: routingSpark.text, done: false }, ...(proj.tasks || [])]
-          }
-        } else if (type === 'scratch') {
-          const timestamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-          const appendText = `\n\n[Spark Captured ${timestamp}]:\n${routingSpark.text}`
-          return {
-            ...proj,
-            scratchpad: proj.scratchpad ? `${proj.scratchpad}${appendText}` : routingSpark.text
-          }
-        }
+      if (proj.id !== projectId) return proj
+      const base = normalizeProject(proj)
+
+      if (type === 'task') {
+        toastMsg = formatSparkToast(labels.sparkSavedTask, projectName)
+        return touchProjectFields({
+          ...base,
+          tasks: [{ id: uid(), text: routingSpark.text, done: false, dueDate: null }, ...(base.tasks || [])],
+        })
       }
-      return proj
+      if (type === 'idea') {
+        toastMsg = formatSparkToast(labels.sparkSavedIdea, projectName)
+        return touchProjectFields({
+          ...base,
+          ideas: [{ id: uid(), text: routingSpark.text, createdAt: Date.now(), source: 'spark' }, ...(base.ideas || [])],
+        })
+      }
+      if (type === 'scratch') {
+        toastMsg = formatSparkToast(labels.sparkSavedNotes, projectName)
+        const pages = [...(base.notebook || [])]
+        const generalIdx = pages.findIndex(p => p.title === 'General')
+        const timestamp = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        const appendText = `\n\n[${timestamp}]\n${routingSpark.text}`
+        if (generalIdx >= 0) {
+          pages[generalIdx] = {
+            ...pages[generalIdx],
+            content: (pages[generalIdx].content || '') + appendText,
+            updatedAt: Date.now(),
+          }
+        } else {
+          pages.unshift({ id: uid(), title: 'General', content: routingSpark.text, updatedAt: Date.now() })
+        }
+        const scratchpad = pages.map(p => p.content).filter(Boolean).join('\n\n')
+        return touchProjectFields({ ...base, notebook: pages, scratchpad })
+      }
+      return base
     })
 
     setProjects(updatedProjects)
     setSparks(prev => prev.filter(s => s.id !== routingSpark.id))
     setRoutingSpark(null)
+    setFileToast(toastMsg)
+    setTimeout(() => setFileToast(null), 3500)
+  }
+
+  function touchProjectFields(project) {
+    return { ...project, lastTouchedAt: Date.now() }
+  }
+
+  function updateAlloy(alloy) {
+    if (onUpdateAlloy) onUpdateAlloy(alloy)
+    else setAlloys(prev => prev.map(a => a.id === alloy.id ? alloy : a))
   }
 
   function toggleRitual(id) {
@@ -949,10 +1072,6 @@ export default function DayView({
         return t
       })
     )
-  }
-
-  function saveDayNote() {
-    if (onSaveDayNote) onSaveDayNote(todayKey, dayNoteDraft)
   }
 
   const todayDisplay = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -1000,7 +1119,7 @@ export default function DayView({
           </span>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
-              onClick={() => setShowRitualSheet(true)}
+              onClick={() => { setEditingRitual(null); setShowRitualSheet(true) }}
               style={{ 
                 background: 'var(--accent-gold-bg)', 
                 border: 'none', 
@@ -1014,7 +1133,7 @@ export default function DayView({
               {labels.newHabit}
             </button>
             <button
-              onClick={() => setShowAlloySheet(true)}
+              onClick={() => { setEditingAlloy(null); setShowAlloySheet(true) }}
               style={{ 
                 background: 'var(--accent-blue-bg)', 
                 border: 'none', 
@@ -1031,7 +1150,7 @@ export default function DayView({
         </div>
 
         {activeAlloys.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '12px' }}>
+          <div className="alloy-routines-list">
             {activeAlloys.map(alloy => (
               <AlloyCard
                 key={alloy.id}
@@ -1041,55 +1160,41 @@ export default function DayView({
                 todayKey={todayKey}
                 onToggleRitual={toggleRitual}
                 onOpenWeldFlow={setWeldFlowAlloy}
-                onDeleteAlloy={onDeleteAlloy}
+                onRequestDeleteAlloy={requestDeleteAlloy}
+                onEditAlloy={(a) => { setEditingAlloy(a); setShowAlloySheet(true) }}
                 temperingClass={getAlloyTemperingClass(alloy, ritualLog, rituals)}
+                labels={labels}
               />
             ))}
           </div>
         )}
 
         {activeRituals.length === 0 ? (
-          <div className="card glass-card" style={{ padding: '16px', textAlign: 'center', background: 'var(--bg-surface)' }}>
-            <p style={{ font: '400 12px var(--font-sans)', color: 'var(--text-muted)' }}>{labels.noRitualsToday}</p>
+          <div className="card glass-card habits-empty-card">
+            <p>{labels.noRitualsToday}</p>
           </div>
         ) : (
           standaloneRituals.length > 0 && (
-            <>
+            <div className="standalone-habits-section">
               {activeAlloys.length > 0 && (
-                <div className="divider-label" style={{ padding: '4px 0 8px', fontSize: '10px' }}>{labels.standaloneHabits}</div>
+                <div className="standalone-habits-label">{labels.standaloneHabits}</div>
               )}
-              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '6px', scrollbarWidth: 'none' }}>
+              <div className="standalone-habits-row">
                 {standaloneRituals.map(rit => {
                   const done = ritualLog[todayKey]?.[rit.id] || false
                   return (
-                    <div
+                    <StandaloneHabitChip
                       key={rit.id}
-                      onClick={() => toggleRitual(rit.id)}
-                      style={{
-                        flex: '0 0 auto',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: '12px 14px',
-                        borderRadius: 'var(--radius-md)',
-                        border: done ? '1.5px solid var(--accent-gold)' : '1.5px solid var(--border)',
-                        background: done ? 'var(--accent-gold-bg)' : 'var(--bg-surface)',
-                        color: done ? 'var(--accent-gold)' : 'var(--text-primary)',
-                        cursor: 'pointer',
-                        boxShadow: done ? '0 0 12px rgba(176, 125, 53, 0.15)' : 'none',
-                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                      }}
-                    >
-                      <span style={{ font: '600 13px var(--font-sans)', display: 'block' }}>{rit.name}</span>
-                      <span style={{ font: '500 9px var(--font-sans)', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        {rit.reminderTime ? `🔔 ${rit.reminderTime}` : 'Check off'}
-                      </span>
-                    </div>
+                      ritual={rit}
+                      done={done}
+                      onToggle={toggleRitual}
+                      onEdit={(r) => { setEditingRitual(r); setShowRitualSheet(true) }}
+                      labels={labels}
+                    />
                   )
                 })}
               </div>
-            </>
+            </div>
           )
         )}
       </div>
@@ -1110,6 +1215,7 @@ export default function DayView({
               className="day-note-input"
               value={dayNoteDraft}
               onChange={e => setDayNoteDraft(e.target.value)}
+              onBlur={saveDayNote}
               placeholder={labels.dayNotePlaceholder}
               rows={4}
               id="day-note-input"
@@ -1196,12 +1302,49 @@ export default function DayView({
           <div className="due-today-banner__title">{labels.dueToday} · {todayDue.length}</div>
           {todayDue.map(item => (
             <div key={item.id} className="due-item" style={{ marginBottom: 6 }}>
-              <span className="due-item__name">{item.text}</span>
+              <span className="due-item__name">
+                {item.text}
+                {item.source === 'project' && (
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 6 }}>Project deadline</span>
+                )}
+              </span>
               <div className="upcoming-row__actions">
-                <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromoteUpcoming?.(item.id)}>
-                  Today
-                </button>
-                <button type="button" className="upcoming-action-btn" onClick={() => onCompleteUpcoming?.(item.id)}>Done</button>
+                {item.source === 'project' || item.source === 'project-task' ? (
+                  <>
+                    {item.source === 'project-task' && (
+                      <button
+                        type="button"
+                        className="upcoming-action-btn upcoming-action-btn--primary"
+                        onClick={() => onPromoteUpcoming?.(item.id, item)}
+                      >
+                        Today
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="upcoming-action-btn"
+                      onClick={() => onOpenProject?.(item.projectId, item.taskId)}
+                    >
+                      Open
+                    </button>
+                    {item.source === 'project-task' && (
+                      <button
+                        type="button"
+                        className="upcoming-action-btn"
+                        onClick={() => onCompleteProjectTask?.(item.projectId, item.taskId)}
+                      >
+                        Done
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="upcoming-action-btn upcoming-action-btn--primary" onClick={() => onPromoteUpcoming?.(item.id)}>
+                      Today
+                    </button>
+                    <button type="button" className="upcoming-action-btn" onClick={() => onCompleteUpcoming?.(item.id)}>Done</button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -1216,18 +1359,23 @@ export default function DayView({
               key={t.id} 
               task={t} 
               doneToday={isTaskDoneOnDay(t, todayKey)}
+              highlighted={highlightId === `task-${t.id}`}
               onToggle={toggleTask} 
               onDelete={requestDelete} 
               onDefer={requestDefer}
             />
           ))}
         </div>
-      ) : (
+      ) : !hasAnyTaskSections && todayDue.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state__icon"><Icons.Day /></div>
           <p className="empty-state__label">{labels.emptySlate}</p>
         </div>
-      )}
+      ) : activeTasks.length === 0 && hasAnyTaskSections ? (
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', padding: '8px 20px 0', margin: 0 }}>
+          {labels.emptySlateHasOther}
+        </p>
+      ) : null}
 
       {snoozedTasks.length > 0 && (
         <>
@@ -1317,6 +1465,7 @@ export default function DayView({
           </button>
         </div>
       </form>
+      <p className="sparks-hint">{labels.sparkHint}</p>
 
       {sparks.length > 0 ? (
         <div className="card" style={{ margin: '0 20px 24px' }}>
@@ -1324,6 +1473,7 @@ export default function DayView({
             <SparkItem 
               key={s.id} 
               spark={s} 
+              highlighted={highlightId === `spark-${s.id}`}
               onPromote={promoteSpark} 
               onRoute={setRoutingSpark}
               onDelete={deleteSpark} 
@@ -1346,20 +1496,31 @@ export default function DayView({
         />
       )}
 
-      {/* New Ritual Sheet */}
+      {/* Ritual Sheet */}
       {showRitualSheet && (
-        <NewRitualSheet
-          onClose={() => setShowRitualSheet(false)}
+        <RitualSheet
+          ritual={editingRitual}
+          labels={labels}
+          onClose={() => { setShowRitualSheet(false); setEditingRitual(null) }}
           onCreate={createRitual}
+          onDelete={requestDeleteRitual}
+          onUpdate={(rit) => {
+            if (onUpdateRitual) onUpdateRitual(rit)
+            setRitualToast(`Updated "${rit.name}".`)
+            setTimeout(() => setRitualToast(null), 2500)
+          }}
         />
       )}
 
-      {/* New Alloy Sheet */}
+      {/* Alloy Sheet */}
       {showAlloySheet && (
-        <NewAlloySheet
+        <AlloySheet
           rituals={rituals}
-          onClose={() => setShowAlloySheet(false)}
+          alloys={alloys}
+          alloy={editingAlloy}
+          onClose={() => { setShowAlloySheet(false); setEditingAlloy(null) }}
           onCreate={onCreateAlloy}
+          onUpdate={updateAlloy}
         />
       )}
 
@@ -1372,19 +1533,34 @@ export default function DayView({
           todayKey={todayKey}
           onToggleRitual={toggleRitual}
           onClose={() => setWeldFlowAlloy(null)}
+          labels={labels}
         />
       )}
 
       {confirmAction && (
         <ConfirmSheet
-          title={confirmAction.type === 'defer' ? 'Postpone to tomorrow?' : 'Delete task?'}
+          title={
+            confirmAction.type === 'defer' ? 'Postpone to tomorrow?'
+            : confirmAction.type === 'deleteRitual' ? labels.deleteHabitTitle
+            : confirmAction.type === 'deleteAlloy' ? labels.deleteRoutineTitle
+            : 'Delete task?'
+          }
           message={
             confirmAction.type === 'defer'
               ? `"${confirmAction.taskText}" will move to tomorrow. You'll find it under Snoozed until then.`
+              : confirmAction.type === 'deleteRitual'
+              ? `"${confirmAction.ritualName}" will be permanently removed. Habits in routines will be unlinked, not deleted.`
+              : confirmAction.type === 'deleteAlloy'
+              ? `"${confirmAction.alloyName}" will be removed. Its habits will appear separately on Today again.`
               : `"${confirmAction.taskText}" will be permanently removed.`
           }
-          confirmLabel={confirmAction.type === 'defer' ? 'Postpone' : 'Delete'}
-          danger={confirmAction.type === 'delete'}
+          confirmLabel={
+            confirmAction.type === 'defer' ? 'Postpone'
+            : confirmAction.type === 'deleteRitual' ? 'Delete habit'
+            : confirmAction.type === 'deleteAlloy' ? 'Delete routine'
+            : 'Delete'
+          }
+          danger={confirmAction.type !== 'defer'}
           onConfirm={handleConfirmAction}
           onCancel={() => setConfirmAction(null)}
         />
@@ -1394,12 +1570,16 @@ export default function DayView({
         <div className="share-toast">{ritualToast}</div>
       )}
 
+      {fileToast && (
+        <div className="share-toast">{fileToast}</div>
+      )}
+
       {/* Habit Stacking Trigger Toast */}
       {stackingToast && (
         <div className="weld-toast">
           <div className="weld-toast__info">
             <div className="weld-toast__title">
-              <span>🔗 Habit Stack Link</span>
+              <span>🔗 {labels.habitStack}</span>
             </div>
             <div className="weld-toast__desc">
               Anchor: "{stackingToast.triggerName}" complete. Start {stackingToast.alloy.name}?

@@ -55,8 +55,18 @@ export default function App() {
   const [journalHighlight, setJournalHighlight] = useState(null)
   const [shareToast, setShareToast] = useState(null)
   const [saveToast, setSaveToast] = useState(null)
+  const [navTarget, setNavTarget] = useState(null)
 
   const plainLanguage = settings.plainLanguage
+
+  function handleNavigate(target) {
+    setTab(target.tab)
+    setNavTarget({ ...target })
+  }
+
+  function clearNavTarget() {
+    setNavTarget(null)
+  }
 
   function showSaveError() {
     setSaveToast('Could not save changes. Please try again.')
@@ -292,18 +302,40 @@ export default function App() {
     storage.saveUpcoming(updated)
   }
 
-  async function handlePromoteUpcoming(id) {
-    const item = upcoming.find(i => i.id === id)
-    if (!item) return
+  async function handlePromoteUpcoming(id, item) {
+    if (item?.source === 'project-task') {
+      await handleSendToToday(item.text)
+      return
+    }
+    const upcomingItem = upcoming.find(i => i.id === id)
+    if (!upcomingItem) return
     await handleAddTask({
       id: uid(),
-      text: item.text,
+      text: upcomingItem.text,
       done: false,
       deferCount: 0,
       reminderTime: null,
     })
     handleCompleteUpcoming(id)
     setTab('day')
+  }
+
+  function handleOpenProject(projectId, taskId = null) {
+    setTab('projects')
+    setNavTarget({ tab: 'projects', projectId, taskId })
+  }
+
+  function handleCompleteProjectTask(projectId, taskId) {
+    const updated = projects.map(p => {
+      if (p.id !== projectId) return p
+      return {
+        ...p,
+        tasks: (p.tasks || []).map(t => t.id === taskId ? { ...t, done: true } : t),
+        lastTouchedAt: Date.now(),
+      }
+    })
+    setProjects(updated)
+    storage.saveProjects(updated)
   }
 
   async function handleSendToToday(text) {
@@ -359,6 +391,24 @@ export default function App() {
     }
   }
 
+  async function handleUpdateRitual(updated) {
+    const prev = rituals.find(r => r.id === updated.id)
+    if (prev?.notificationIds) {
+      await notifications.cancelMultiple(prev.notificationIds)
+    }
+    const nIds = await notifications.scheduleRitual(updated)
+    const next = { ...updated, notificationIds: nIds }
+    const list = rituals.map(r => r.id === updated.id ? next : r)
+    setRituals(list)
+    storage.saveRituals(list)
+  }
+
+  function handleUpdateAlloy(updated) {
+    const list = alloys.map(a => a.id === updated.id ? updated : a)
+    setAlloys(list)
+    storage.saveAlloys(list)
+  }
+
   // ── Lifted Ritual Operations ──────────────────────────────
   async function handleCreateRitual(rit) {
     const nIds = await notifications.scheduleRitual(rit)
@@ -367,7 +417,7 @@ export default function App() {
     storage.saveRituals(updated)
   }
 
-  function handleDeleteRitual(id) {
+  async function handleDeleteRitual(id) {
     const rit = rituals.find(r => r.id === id)
     if (rit && rit.notificationIds) {
       notifications.cancelMultiple(rit.notificationIds)
@@ -375,6 +425,13 @@ export default function App() {
     const updated = rituals.filter(r => r.id !== id)
     setRituals(updated)
     storage.saveRituals(updated)
+    const updatedAlloys = alloys
+      .map(a => ({ ...a, ritualIds: (a.ritualIds || []).filter(rid => rid !== id) }))
+      .filter(a => (a.ritualIds || []).length > 0)
+    if (updatedAlloys.length !== alloys.length) {
+      setAlloys(updatedAlloys)
+      storage.saveAlloys(updatedAlloys)
+    }
   }
 
   // ── Lifted Alloy Operations ────────────────────────────────
@@ -490,6 +547,7 @@ export default function App() {
             events={events}
             rituals={rituals}
             onCreateRitual={handleCreateRitual}
+            onUpdateRitual={handleUpdateRitual}
             onDeleteRitual={handleDeleteRitual}
             ritualLog={ritualLog}
             setRitualLog={handleUpdateRitualLog}
@@ -501,6 +559,7 @@ export default function App() {
             alloys={alloys}
             setAlloys={handleUpdateAlloys}
             onCreateAlloy={handleCreateAlloy}
+            onUpdateAlloy={handleUpdateAlloy}
             onDeleteAlloy={handleDeleteAlloy}
             plainLanguage={plainLanguage}
             dayNote={dailyNotes[todayKey] || ''}
@@ -510,6 +569,10 @@ export default function App() {
             upcoming={upcoming}
             onCompleteUpcoming={handleCompleteUpcoming}
             onPromoteUpcoming={handlePromoteUpcoming}
+            onOpenProject={handleOpenProject}
+            onCompleteProjectTask={handleCompleteProjectTask}
+            navTarget={navTarget}
+            onNavConsumed={clearNavTarget}
           />
         </div>
         <div className={tab === 'projects' ? '' : 'hidden'}>
@@ -518,12 +581,15 @@ export default function App() {
             onUpdateProjects={handleUpdateProjects}
             onSendToToday={handleSendToToday}
             plainLanguage={plainLanguage}
+            navTarget={navTarget}
+            onNavConsumed={clearNavTarget}
           />
         </div>
         <div className={tab === 'calendar' ? '' : 'hidden'}>
           <CalendarView
             events={events}
             upcoming={upcoming}
+            projects={projects}
             tasks={tasks}
             rituals={rituals}
             alloys={alloys}
@@ -534,8 +600,12 @@ export default function App() {
             onCompleteUpcoming={handleCompleteUpcoming}
             onPromoteUpcoming={handlePromoteUpcoming}
             onDeleteUpcoming={handleDeleteUpcoming}
+            onOpenProject={handleOpenProject}
+            onCompleteProjectTask={handleCompleteProjectTask}
             todayKey={todayKey}
             plainLanguage={plainLanguage}
+            navTarget={navTarget}
+            onNavConsumed={clearNavTarget}
           />
         </div>
         <div className={tab === 'metrics' ? '' : 'hidden'}>
@@ -586,7 +656,7 @@ export default function App() {
           events={events}
           upcoming={upcoming}
           dailyNotes={dailyNotes}
-          onGoToTab={setTab}
+          onNavigate={handleNavigate}
           onOpenJournal={(dateKey) => {
             setTab('day')
             setJournalHighlight(dateKey)

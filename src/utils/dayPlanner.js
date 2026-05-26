@@ -15,9 +15,13 @@ export function formatShortDate(dateKey) {
 
 export function getDayPlanSummary(tasks, rituals, events, dateKey, alloys = []) {
   const dayTasks = (tasks || []).filter(t => isTaskActiveOnDay(t, dateKey))
-  const dayRituals = (rituals || []).filter(r => ritualMatchesDay(r, dateKey))
   const dayAlloys = (alloys || []).filter(a => alloyMatchesDay(a, dateKey))
   const dayEvents = (events || []).filter(e => eventMatchesDay(e, dateKey))
+  const alloyRitualIds = new Set()
+  dayAlloys.forEach(a => (a.ritualIds || []).forEach(id => alloyRitualIds.add(id)))
+  const dayRituals = (rituals || [])
+    .filter(r => ritualMatchesDay(r, dateKey))
+    .filter(r => !alloyRitualIds.has(r.id))
   return {
     tasks: dayTasks,
     rituals: dayRituals,
